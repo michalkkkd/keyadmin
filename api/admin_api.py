@@ -1,4 +1,5 @@
-﻿from core.protocol import RpcProtocol
+from core.protocol import RpcProtocol
+from core.transport import MSG_ADMIN_DATE, MSG_ADMIN_LIC, MSG_ADMIN_WIPE, MSG_DEBUG_TIME
 
 class AdminApi:
     """Warstwa biznesowa dla komend administracyjnych"""
@@ -7,10 +8,19 @@ class AdminApi:
         self.pin = admin_pin
 
     def update_current_date(self, unix_timestamp: int) -> str:
-        return self.rpc.execute_command(f'ADMIN_DATE {unix_timestamp} {self.pin}')
+        payload = f"{unix_timestamp} {self.pin}".encode('utf-8')
+        return self.rpc.execute_command(MSG_ADMIN_DATE, payload)
         
     def set_license_days(self, days: int) -> str:
-        return self.rpc.execute_command(f'ADMIN_LIC {days} {self.pin}')
+        payload = f"{days} {self.pin}".encode('utf-8')
+        return self.rpc.execute_command(MSG_ADMIN_LIC, payload)
         
     def wipe_device(self) -> str:
-        return self.rpc.execute_command(f'ADMIN_WIPE {self.pin}')
+        payload = self.pin.encode('utf-8')
+        return self.rpc.execute_command(MSG_ADMIN_WIPE, payload)
+
+    def debug_time(self) -> str:
+        import time
+        import struct
+        payload = struct.pack('<I', int(time.time()))
+        return self.rpc.execute_command(MSG_DEBUG_TIME, payload)

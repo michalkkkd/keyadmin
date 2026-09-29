@@ -1,16 +1,21 @@
 import time
 import re
 from datetime import datetime
-from .transport import SerialTransport
+from .transport import SerialTransport, MSG_LOG, MSG_OK, MSG_ERR
 
 class RpcProtocol:
-    """Warstwa logiczna (protokol Ping-Pong, odbieranie logow)"""
     def __init__(self, transport: SerialTransport):
         self.transport = transport
-        self._first_command = True
+        
+        # Rejestrujemy nasluchiwacz na logi splywajace w tle z MCU
+        self.transport.tf.add_type_listener(MSG_LOG, self._on_log)
+
+    def _on_log(self, tf, msg):
+        log_str = msg.data.decode('utf-8', errors='ignore')
+        print(f'   [MCU] {self._format_timestamps(log_str)}')
+        return True # stay active
 
     def _format_timestamps(self, text: str) -> str:
-        """Zamienia surowe Unix timestampy na czytelny format Y-m-d H:M:S"""
         def replace_ts(m):
             ts = int(m.group(0))
             if 1577836800 <= ts <= 2524608000:
@@ -20,7 +25,6 @@ class RpcProtocol:
         return self._format_elapsed(text)
 
     def _format_elapsed(self, text: str) -> str:
-        """Zamienia 'Od sync minelo: X minut' na 'X h Y m' gdy > 60 minut"""
         def replace_elapsed(m):
             mins = int(m.group(1))
             if mins >= 60:
@@ -30,30 +34,23 @@ class RpcProtocol:
             return m.group(0)
         return re.sub(r'Od sync minelo: (\d+) minut', replace_elapsed, text)
 
-    def execute_command(self, cmd: str, timeout_sec: float = 5.0) -> str:
-        """
-        Wysyla komende i blokuje wykonanie az do otrzymania OK: lub ERR:
-        W miedzyczasie printuje sprzetowe LOG: na biezaco.
-        """
-        if self._first_command:
-            self._first_command = False
-        else:
-            # Daj MCU czas na opuszczenie petli while w app_process_action
-            # zanim wyslemy kolejna komende (inaczej MCU przetworzy ja podwojnie)
-            time.sleep(0.5)
+    def execute_command(self, cmd_id: int, payload: bytes = b'', timeout_sec: float = 2.0, max_retries: int = 3) -> str:
+        print(f'[Protocol] Wysylam ID: 0x{cmd_id:02X}, Dlugosc: {len(payload)}')
+        
+        for attempt in range(max_retries):
+            resp = self.transport.query(cmd_id, payload, timeout=timeout_sec)
+            if resp is not None:
+                data_str = resp.data.decode('utf-8', errors='ignore')
+                if resp.type == MSG_OK:
+                    return f"OK: {data_str}"
+                elif resp.type == MSG_ERR:
+                    return f"ERR: {data_str}"
+                else:
+                    return f"UNKNOWN: {data_str}"
+            
+            # Jesli zlapalismy zgubiony pakiet, sprobujmy ponownie po krotkiej przerwie
+            if attempt < max_retries - 1:
+                print(f'[Protocol] Pakiet uszkodzony (CRC). Retransmisja {attempt + 1}/{max_retries}...')
+                time.sleep(0.1)
 
-        print(f'[Protocol] Wysylam: {cmd!r}')
-        self.transport.write_line(cmd)
-
-        start = time.time()
-        while time.time() - start < timeout_sec:
-            line = self.transport.read_line()
-            if not line:
-                continue
-
-            if line.startswith('LOG:'):
-                print(f'   [MCU] {self._format_timestamps(line[4:].strip())}')
-            elif line.startswith('OK:') or line.startswith('ERR:'):
-                return line
-
-        raise TimeoutError(f'Krytyczny blad sprzetu: Brak odpowiedzi na {cmd} przez {timeout_sec} sekund!')
+        raise TimeoutError(f'Krytyczny blad sprzetu: Brak odpowiedzi na komende 0x{cmd_id:02X} (Nieudane retransmisje)!')
