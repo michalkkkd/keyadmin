@@ -15,6 +15,8 @@ MSG_DEBUG_TIME   = 0x07
 MSG_ADMIN_USERS  = 0x08
 MSG_COMPASS_USERS= 0x09
 MSG_MEM_INFO     = 0x0A
+MSG_PROVISION_IDENTITY = 0x0B
+MSG_SAVE_CERTIFICATE   = 0x0C
 
 # Responses
 MSG_OK           = 0x80
@@ -23,7 +25,15 @@ MSG_ERR          = 0x81
 class SerialTransport:
     def __init__(self, port='COM7', baudrate=115200):
         self.port = port
-        self.ser = serial.Serial(port, baudrate, timeout=0.1)
+        import time
+        for attempt in range(5):
+            try:
+                self.ser = serial.Serial(port, baudrate, timeout=0.01)
+                break
+            except Exception as e:
+                if attempt == 4:
+                    raise
+                time.sleep(0.1)
         print(f'[Transport] Port opened: {port}')
         
 
@@ -48,13 +58,22 @@ class SerialTransport:
         self.ser.flush()
 
     def _rx_thread(self):
+        import time
+        error_count = 0
         while self.running:
-            if self.ser.in_waiting > 0:
-                data = self.ser.read(self.ser.in_waiting)
-                print(f'> RAW: {data.hex()}')
-                self.tf.accept(data)
-            else:
-                time.sleep(0.01)
+            try:
+                data = self.ser.read(1024)
+                if data:
+                    print(f'> RAW: {data.hex()}')
+                    self.tf.accept(data)
+                error_count = 0 # reset on success
+            except Exception as e:
+                print(f'[Transport] RX Error: {e}')
+                error_count += 1
+                if error_count > 5:
+                    print('[Transport] Zbyt duzo bledow RX, zamykam watek.')
+                    break
+                time.sleep(0.1)
 
     def sync(self):
         print(f'[Transport] Synchronizing with microcontroller...')
@@ -88,11 +107,22 @@ class SerialTransport:
             event.set()
             return True # remove listener
             
+        print(f'[Transport] query cmd_id={cmd_id:02X}, next_frame_id={self.tf.next_frame_id}')
         self.tf.query(cmd_id, listener, payload)
+        import time
+        t0 = time.time()
         event.wait(timeout)
+        print(f'[Transport] wait took {time.time()-t0:.2f}s')
         return result[0]
 
     def close(self):
         self.running = False
         self.thread.join(timeout=1.0)
         self.ser.close()
+
+
+
+
+
+
+

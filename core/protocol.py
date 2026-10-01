@@ -35,12 +35,27 @@ class RpcProtocol:
         return re.sub(r'Od sync minelo: (\d+) minut', replace_elapsed, text)
 
     def execute_command(self, cmd_id: int, payload: bytes = b'', timeout_sec: float = 2.0, max_retries: int = 3) -> str:
-        print(f'[Protocol] Sending ID: 0x{cmd_id:02X}, Length: {len(payload)}')
+        # Check if we should encrypt
+        is_secure = hasattr(self, 'secure_channel') and self.secure_channel and self.secure_channel.is_active
+        if is_secure and cmd_id in (0x06, 0x09): # MSG_COMPASS_ALG1, MSG_COMPASS_USERS
+            payload = self.secure_channel.encrypt_payload(payload)
+            print(f'[Protocol] Sending ENCRYPTED ID: 0x{cmd_id:02X}, CipherLen: {len(payload)}')
+        else:
+            print(f'[Protocol] Sending ID: 0x{cmd_id:02X}, Length: {len(payload)}')
         
         for attempt in range(max_retries):
             resp = self.transport.query(cmd_id, payload, timeout=timeout_sec)
             if resp is not None:
-                data_str = resp.data.decode('utf-8', errors='ignore')
+                resp_data = resp.data
+                
+                # If it was a secure command, decrypt the response (whether OK or ERR)
+                if is_secure and cmd_id in (0x06, 0x09) and resp.type in (MSG_OK, MSG_ERR):
+                    try:
+                        resp_data = self.secure_channel.decrypt_payload(resp_data)
+                    except Exception as e:
+                        return f"ERR: Decryption Failed - {str(e)}"
+                
+                data_str = resp_data.decode('utf-8', errors='ignore')
                 if resp.type == MSG_OK:
                     return f"OK: {data_str}"
                 elif resp.type == MSG_ERR:

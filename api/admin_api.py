@@ -32,3 +32,13 @@ class AdminApi:
     def get_memory_info(self) -> str:
         from core.transport import MSG_MEM_INFO
         return self.rpc.execute_command(MSG_MEM_INFO)
+
+    def provision_identity(self) -> str:
+        from core.transport import MSG_PROVISION_IDENTITY
+        payload = self.pin.encode('utf-8')
+        return self.rpc.execute_command(MSG_PROVISION_IDENTITY, payload, timeout_sec=5.0)
+
+    def save_certificate(self, cert_bytes: bytes) -> str:
+        from core.transport import MSG_SAVE_CERTIFICATE
+        payload = self.pin.encode('utf-8') + b" " + cert_bytes
+        return self.rpc.execute_command(MSG_SAVE_CERTIFICATE, payload, timeout_sec=3.0)

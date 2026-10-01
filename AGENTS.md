@@ -48,7 +48,9 @@ This file (AGENTS.md) and all documents it references (in the docs/agent_knowled
 - Avoid creating generic interfaces, speculative base classes, or overly complex class hierarchies "just in case" they might be needed later.
 
 ## 8. Secure by Default & Defensive Programming
-**In a hardware security project, the default state must always be the secure state.**
+**[CRITICAL DIRECTIVE] SECURITY IS PRIORITY NUMBER 1. THE MOST IMPORTANT ASPECT OF THIS PROJECT.**
+- **NEVER COMPROMISE SECURITY TO FIX A BUG.** If there are errors, build failures, or integration problems, we FIX the problem by implementing the missing features properly. We NEVER lower the level of security, bypass cryptography, or use weaker fallbacks just to make it work.
+- **In a hardware security project, the default state must always be the secure state.**
 - Default to least privilege. Variables should be as tightly scoped as possible.
 - Assume all external input (from PC to Dongle, or Dongle to PC) is malicious until fully parsed and verified (e.g., CRC, bounds checking).
 - Magic numbers are strictly forbidden; always use named constants, defines, or enums (e.g.,  x08 must be MSG_ADMIN_USERS).
