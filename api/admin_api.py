@@ -1,8 +1,8 @@
 from core.protocol import RpcProtocol
-from core.transport import MSG_ADMIN_DATE, MSG_ADMIN_LIC, MSG_ADMIN_WIPE, MSG_DEBUG_TIME
+from core.transport import MSG_ADMIN_DATE, MSG_ADMIN_LIC, MSG_ADMIN_WIPE, MSG_DEBUG_TIME, MSG_ADMIN_USERS
 
 class AdminApi:
-    """Warstwa biznesowa dla komend administracyjnych"""
+    """Business layer for administrative commands"""
     def __init__(self, rpc: RpcProtocol, admin_pin: str = '1234'):
         self.rpc = rpc
         self.pin = admin_pin
@@ -24,3 +24,11 @@ class AdminApi:
         import struct
         payload = struct.pack('<I', int(time.time()))
         return self.rpc.execute_command(MSG_DEBUG_TIME, payload)
+
+    def set_max_users(self, users: int) -> str:
+        payload = f"{users} {self.pin}".encode('utf-8')
+        return self.rpc.execute_command(MSG_ADMIN_USERS, payload)
+
+    def get_memory_info(self) -> str:
+        from core.transport import MSG_MEM_INFO
+        return self.rpc.execute_command(MSG_MEM_INFO)

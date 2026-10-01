@@ -12,6 +12,9 @@ MSG_ADMIN_LIC    = 0x04
 MSG_ADMIN_WIPE   = 0x05
 MSG_COMPASS_ALG1 = 0x06
 MSG_DEBUG_TIME   = 0x07
+MSG_ADMIN_USERS  = 0x08
+MSG_COMPASS_USERS= 0x09
+MSG_MEM_INFO     = 0x0A
 
 # Responses
 MSG_OK           = 0x80
@@ -21,7 +24,7 @@ class SerialTransport:
     def __init__(self, port='COM7', baudrate=115200):
         self.port = port
         self.ser = serial.Serial(port, baudrate, timeout=0.1)
-        print(f'[Transport] Port otwarty: {port}')
+        print(f'[Transport] Port opened: {port}')
         
 
         self.tf = TinyFrame()
@@ -36,11 +39,11 @@ class SerialTransport:
         self.sync()
 
     def _tf_write(self, buf):
-        # HACK SPRZĘTOWY: Procek EFR32 wchodzi w głębokie uśpienie (EM2).
-        # Pierwszy bajt odebrany przez UART służy mu tylko do wybudzenia i
-        # często jest gubiony przez sprzęt. Dodajemy pusty bajt nowej linii (0x0A)
-        # przed każdą ramką TinyFrame. Procek się wybudza, a TinyFrame
-        # bezpiecznie ignoruje 0x0A, czekając na prawidłowy Start Of Frame (0x01).
+        # HARDWARE HACK: The EFR32 processor goes into deep sleep (EM2).
+        # The first byte received over UART is only used for waking it up and
+        # is often lost by the hardware. We add an empty newline byte (0x0A)
+        # before every TinyFrame frame. The processor wakes up, and TinyFrame
+        # safely ignores 0x0A, waiting for a valid Start Of Frame (0x01).
         self.ser.write(b'\n' + buf)
         self.ser.flush()
 
@@ -54,7 +57,7 @@ class SerialTransport:
                 time.sleep(0.01)
 
     def sync(self):
-        print(f'[Transport] Synchronizacja z mikrokontrolerem...')
+        print(f'[Transport] Synchronizing with microcontroller...')
         self.ser.reset_input_buffer()
         
         for attempt in range(3):
@@ -70,9 +73,9 @@ class SerialTransport:
             
             if event.wait(2.0):
                 if result[0] and result[0].type == MSG_OK and result[0].data == b"PONG":
-                    print('[Transport] Zsynchronizowano z MCU (TinyFrame)!')
+                    print('[Transport] Synchronized with MCU (TinyFrame)!')
                     return
-            print(f'[Transport] Brak PONG. Retransmisja PING {attempt+1}/3...')
+            print(f'[Transport] No PONG. Retransmitting PING {attempt+1}/3...')
             
         raise TimeoutError('[Transport] Brak odpowiedzi na PING (MCU spi lub nie odpowiada!)')
 

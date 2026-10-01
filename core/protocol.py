@@ -7,7 +7,7 @@ class RpcProtocol:
     def __init__(self, transport: SerialTransport):
         self.transport = transport
         
-        # Rejestrujemy nasluchiwacz na logi splywajace w tle z MCU
+        # Register listener for background logs from MCU
         self.transport.tf.add_type_listener(MSG_LOG, self._on_log)
 
     def _on_log(self, tf, msg):
@@ -35,7 +35,7 @@ class RpcProtocol:
         return re.sub(r'Od sync minelo: (\d+) minut', replace_elapsed, text)
 
     def execute_command(self, cmd_id: int, payload: bytes = b'', timeout_sec: float = 2.0, max_retries: int = 3) -> str:
-        print(f'[Protocol] Wysylam ID: 0x{cmd_id:02X}, Dlugosc: {len(payload)}')
+        print(f'[Protocol] Sending ID: 0x{cmd_id:02X}, Length: {len(payload)}')
         
         for attempt in range(max_retries):
             resp = self.transport.query(cmd_id, payload, timeout=timeout_sec)
@@ -48,9 +48,9 @@ class RpcProtocol:
                 else:
                     return f"UNKNOWN: {data_str}"
             
-            # Jesli zlapalismy zgubiony pakiet, sprobujmy ponownie po krotkiej przerwie
+            # If we caught a dropped packet, retry after a short delay
             if attempt < max_retries - 1:
-                print(f'[Protocol] Pakiet uszkodzony (CRC). Retransmisja {attempt + 1}/{max_retries}...')
+                print(f'[Protocol] Packet corrupted (CRC). Retransmission {attempt + 1}/{max_retries}...')
                 time.sleep(0.1)
 
-        raise TimeoutError(f'Krytyczny blad sprzetu: Brak odpowiedzi na komende 0x{cmd_id:02X} (Nieudane retransmisje)!')
+        raise TimeoutError(f'Critical hardware error: No response for command 0x{cmd_id:02X} (Failed retransmissions)!')
