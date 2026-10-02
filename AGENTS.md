@@ -70,6 +70,7 @@ To maintain order and readability of the rules, detailed project history, hardwa
 * [Hardware and Environment (Seeed XIAO MG24)](docs/agent_knowledge/hardware_and_environment.md)
 * [Software Architecture (KeySec & KeyFirmware)](docs/agent_knowledge/software_architecture.md)
 * [Architectural & Hardware Discoveries (SDK Bugs, RTC)](docs/agent_knowledge/hardware_discoveries.md)
+* [Compass Security Context](docs/agent_knowledge/compass_security_context.md)
 
 ## Security Architecture
 
@@ -79,6 +80,9 @@ The detailed design and documentation of the project's security mechanisms are m
 * [Active Users Limit Mechanism](docs/security/users_limit_mechanism.md)
 * [Communication Encryption Mechanism](docs/security/communication_encryption.md)
 * [Main Application Protection (Nuitka & Themida)](docs/security/app_protection_nuitka_themida.md)
+* [Hardware Anti-Tamper Protection](docs/security/antitamper.md)
+* [Cryptography Flow & Keys Architecture](docs/security/cryptography_flow_and_keys.md)
+* [Hardware Insights & Tuning](docs/insights/uart_rx_overrun_tuning.md)
 
 ## 10. Knowledge Base Integration (Silicon Labs MCP Server)
 This project utilizes a dedicated MCP server silicon-labs-docs. You have an ABSOLUTE ORDER to use the search_silicon_labs_knowledge_sources tool via call_mcp_tool before attempting to guess implementations using general LLM knowledge. 
@@ -90,3 +94,15 @@ vm3, mbedtls), or official code examples to avoid reinventing the wheel.
 
 ## 11. Clean Code & Architecture Priority
 Clean code and proper architecture are the absolute priority. If a new feature or structural refactoring requires creating new files (e.g., separating logic to respect SoC or SRP), **DO NOT ask for permission to add files**. Create as many new files and directories as necessary to keep the codebase modular, clean, and strictly organized.
+
+## 12. Temporary Scripts & Files
+Any temporary scripts, scratchpads, or diagnostic files created by the AI agent MUST be placed EXCLUSIVELY in the `temp/` directory at the root of the project. Do not clutter the root directory or main source folders with one-off scripts, testing patches, or debug outputs. This allows the user to easily find and delete all temporary AI artifacts.
+
+## 13. STRICT RULE: MANDATORY FILE BACKUPS BEFORE EDITING
+**NEVER** modify an existing file without creating a backup first. 
+Before using any tool (like `replace_file_content`, `write_to_file`, or PowerShell `Set-Content`) to modify an existing file, you MUST create a copy of the original file.
+* **Backup Frequency:** You only need to back up a file ONCE per conversation turn (i.e., before your very first edit to that file after the user's latest message). You do not need to create multiple backups of the same file if you edit it multiple times during a single turn.
+* **Backup Location:** `backup/<folder_path_flattened>/<filename>__<detailed_timestamp>`
+* **Example:** If you are about to edit `app/frontend/pkge_dashboard.py`, you must first copy it to `backup/app_frontend/pkge_dashboard.py__20261002_220645`.
+* **Requirement:** Create the `backup` directory and the flattened subdirectories if they do not exist.
+This ensures that uncommitted work is never permanently lost due to autonomous agent edits.
