@@ -83,13 +83,25 @@ def main():
         print('\n--- STEP 1.5: Detailed Global RTC Diagnostics ---')
         print(admin.debug_time())
         
+        print('\n--- STEP 1.7: Hardware Health & Anti-Tamper ---')
+        health_str = admin.get_system_health()
+        print(health_str)
+        if 'TamperEvents' in health_str and not health_str.startswith('ERR') and int(health_str.split('TamperEvents:')[1].split(',')[0]) > 0:
+            print('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            print('!!! CRITICAL SECURITY ALERT: PHYSICAL TAMPER DETECTED !!!')
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
+
         print('\n--- STEP 1.8: Memory Diagnostics ---')
         print(admin.get_memory_info())
+        print('\n--- STEP 1.9: NVM3 Diagnostics ---')
+        print(admin.get_nvm_diagnostics())
         
         if 'RTC out of sync' in lic_status or 'No license' in lic_status or 'EXPIRED' in lic_status:
+            print('\n!!! ALERT -> SAVING CURRENT TIME TO NVM !!!')
             print('\n--- STEP 2: Time Synchronization ---')
             print('->', admin.update_current_date(current_time))
             
+            print('\n!!! ALERT -> SAVING LICENSE (30 DAYS) TO NVM !!!')
             print('\n--- STEP 3: License Activation (30 days and 5 users) ---')
             print('->', admin.set_license_days(30))
             print('->', admin.set_max_users(1))
@@ -98,7 +110,15 @@ def main():
         else:
             print('   (Synchronization skipped - MCU already configured)')
         
-        print('\n--- FORCING USER LIMIT TO 1 ---'); print('->', admin.set_max_users(1)); print('\n--- STEP 4: Verification ---')
+        print('\n--- FORCING USER LIMIT TO 1 (UPSERT MODE) ---')
+        curr_users = compass.get_max_users()
+        if '1' not in curr_users:
+            print('\n!!! ALERT -> SAVING MAX_USERS TO 1 !!!')
+            print('->', admin.set_max_users(1))
+            time.sleep(1)
+        else:
+            print('-> SKIPPED (Max users is already 1)')
+        print('\n--- STEP 4: Verification ---')
         print('->', compass.check_license())
         print('->', compass.get_max_users())
 

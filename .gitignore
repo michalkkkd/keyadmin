@@ -34,3 +34,4 @@ archive/
 Thumbs.db
 .DS_Store
 /temp/
+/backup/

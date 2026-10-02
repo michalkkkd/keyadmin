@@ -127,3 +127,37 @@ void etampdet_init_example(void)
     sl_hal_etampdet_wait_sync();
 }
 ```
+
+## Instrukcja Testowania dla Marka
+
+Obecny kod w KeyFirmware wykorzystuje bezpieczną "piaskownicę" do testów otwarcia obudowy. Omija ona nieodwracalne przepalanie pamięci OTP, ale w 100% symuluje zachowanie sprzętu dla oprogramowania.
+
+### 1. Co dokładnie zrobić fizycznie (Podłączenie)?
+* Zlokalizuj na płytce **Seeed XIAO MG24** pin oznaczony jako **D0** (w kodzie C jest to mapowane jako port PA00).
+* Zlokalizuj dowolny pin **GND** (masa).
+* Podłącz zwykły przycisk (krańcówkę) lub pętlę z przewodu pomiędzy pinem **D0** a **GND**.
+* **Stan Normalny (Zabezpieczony):** Przycisk jest wciśnięty (obwód zwarty do masy). Symuluje to prawidłowo zamkniętą, nienaruszoną obudowę.
+* **Stan Alarmowy (Atak):** Puszczenie przycisku (lub przecięcie drutu zabezpieczającego) powoduje rozwarcie obwodu. Wbudowany w procesor rezystor *Pull-up* natychmiast podciąga napięcie na pinie D0 do zasilania (VCC). To wyzwala błyskawiczne sprzętowe przerwanie.
+
+### 2. Jak to sprawdzić i co dokładnie zobaczysz?
+
+**Krok 1: Test Wizualny (Urządzenie zasilane, bez włączonego skryptu Python na PC)**
+* Dopóki trzymasz przycisk wciśnięty (obudowa zamknięta) - dioda nie reaguje.
+* Gdy tylko puścisz przycisk (otwarcie obudowy), wewnętrzny licznik 	amper_event_count rośnie o 1. Wbudowana dioda na płytce XIAO **zamiga szybko jeden raz**.
+* Jeśli znów wciśniesz i po chwili puścisz przycisk, układ zanotuje to jako drugi atak. Dioda zamiga **dwa razy pod rząd**. Liczba błysków LED zawsze obrazuje całkowitą sumę zarejestrowanych naruszeń.
+
+**Krok 2: Test Telemetrii (Komunikacja z Windows)**
+* Włącz Dongle'a i uruchom w systemie Windows nasz skrypt backendowy: python main.py.
+* Jeśli wcześniej klikałeś przyciskiem, Dongle ciągle przechowuje to w pamięci RAM.
+* W trakcie autoryzacji (krok 1.7), Python odpyta dongle'a o kondycję sprzętową (MSG_SYS_HEALTH).
+* Ponieważ dongle zanotował atak, wyśle raport do Windowsa.
+* W konsoli Windowsa natychmiast po połączeniu zobaczysz ogromny alert bezpieczeństwa:
+`	ext
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!! CRITICAL SECURITY ALERT: PHYSICAL TAMPER DETECTED !!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+`
+Oraz bieżący odczyt parametrów środowiskowych wyciągnięty ze sprzętu, np.:
+TamperEvents: 2, Temp: 24.5C
+
+> **Ważna uwaga fizyczna:** Obecna konfiguracja "wersji testowej" przechowuje wynik w szybkiej pamięci RAM, by uchronić żywotność Flasha i nie uszkodzić Secure Engine (OTP). To oznacza, że jeżeli **całkowicie odłączysz zasilanie** (np. wyjmiesz układ z USB w celu przeniesienia na inne biurko), to log w RAM zniknie i po podłączeniu licznik znowu będzie wynosił zero. Do testowania samej mechaniki obudowy wystarczy zasilanie z powerbanka i obserwacja diody LED!

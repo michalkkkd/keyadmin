@@ -42,3 +42,9 @@ class AdminApi:
         from core.transport import MSG_SAVE_CERTIFICATE
         payload = self.pin.encode('utf-8') + b" " + cert_bytes
         return self.rpc.execute_command(MSG_SAVE_CERTIFICATE, payload, timeout_sec=3.0)
+    def get_nvm_diagnostics(self) -> str:
+        from core.transport import MSG_NVM_DIAG
+        return self.rpc.execute_command(MSG_NVM_DIAG)
+    def get_system_health(self) -> str:
+        from core.transport import MSG_SYS_HEALTH
+        return self.rpc.execute_command(MSG_SYS_HEALTH)
