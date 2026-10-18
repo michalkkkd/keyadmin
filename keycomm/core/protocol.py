@@ -23,6 +23,11 @@ class RpcProtocol:
         self.transport = transport
         self._lock = threading.RLock()
 
+        # Telemetry counters for diagnostics and stress testing
+        self.retransmissions_count = 0
+        self.timeouts_count = 0
+        self.session_resets_count = 0
+
         # Register listener for background logs from MCU
         self.transport.tf.add_type_listener(MSG_LOG, self._on_log)
 
@@ -85,6 +90,8 @@ class RpcProtocol:
                         if resp.type == MSG_ERR and (len(resp_data) < 20 or resp_data.startswith(b"ERR:") or resp_data.startswith(MCU_ERR_LIC_EXPIRED.encode())):
                             data_str = resp_data.decode(CHAR_ENCODING_UTF8, errors='ignore')
                             if (MCU_ERR_SESSION_INACTIVE in data_str or MCU_ERR_DECRYPT_FAILED in data_str or MCU_ERR_DECRYPTION_FAILED in data_str) and attempt < max_retries - 1 and hasattr(self, 'secure_channel') and self.secure_channel:
+                                self.session_resets_count += 1
+                                self.retransmissions_count += 1
                                 print(LOG_FMT_SESSION_ERROR.format(data_str=data_str))
                                 if self.secure_channel.init_handshake():
                                     is_secure = self.secure_channel.is_active
@@ -95,6 +102,8 @@ class RpcProtocol:
                             resp_data = self.secure_channel.decrypt_payload(resp_data)
                         except Exception as e:
                             if attempt < max_retries - 1 and hasattr(self, 'secure_channel') and self.secure_channel:
+                                self.session_resets_count += 1
+                                self.retransmissions_count += 1
                                 print(LOG_FMT_DECRYPT_FAIL.format(e=e))
                                 if self.secure_channel.init_handshake():
                                     is_secure = self.secure_channel.is_active
@@ -111,7 +120,9 @@ class RpcProtocol:
                         return f"{RESP_UNKNOWN_PREFIX}{data_str}"
 
                 # Flush stale responses from serial buffer before retransmitting.
+                self.timeouts_count += 1
                 if attempt < max_retries - 1:
+                    self.retransmissions_count += 1
                     print(LOG_FMT_CORRUPTED_CRC.format(attempt=attempt + 1, max_retries=max_retries))
                     try:
                         self.transport.ser.reset_input_buffer()

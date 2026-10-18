@@ -78,12 +78,13 @@ ADMIN_MSG_MAX_USERS_PREFIX  = "-> MAX USERS:"
 ADMIN_MSG_HB_RESUMING       = "[INFO] Resuming automated heartbeat (every 3s)..."
 ADMIN_MSG_HB_RUNNING        = "[INFO] Heartbeat is now running in the background."
 ADMIN_MSG_HB_PAUSING        = "[INFO] Pausing automated heartbeat from Python..."
-ADMIN_MSG_HB_EXPLANATION    = "[INFO] The MCU requires PING every 3s. Without it, it will timeout (~5s) and enter EM2 sleep."
+ADMIN_MSG_HB_EXPLANATION    = "[INFO] The MCU requires PING every 3s. Without it, it will timeout (~7.5s) and enter EM3 sleep."
 ADMIN_MSG_HB_WAITING        = "[INFO] Waiting 20 seconds..."
 ADMIN_MSG_HB_ASLEEP         = "[INFO] MCU should be deeply asleep now."
 ADMIN_MSG_HB_VERIFY_WAKE    = "[INFO] Sending a manual command to verify Wake-on-RX works..."
 ADMIN_DEFAULT_USER_EMAIL     = "admin_test@compass.com"
-ADMIN_BENCHMARK_ITERATIONS   = 100000
+ADMIN_BENCHMARK_ITERATIONS   = 5000
+ADMIN_BENCHMARK_LOG_STEP     = 100
 ADMIN_MSG_BENCH_START_FMT    = "Executing benchmark: {iterations} iterations with random inputs..."
 ADMIN_MSG_BENCH_ITER_FMT     = "[{idx:6d}/{total:6d}] Last: {a} + {b} = {res} ({duration_ms:.2f} ms)"
 ADMIN_MSG_BENCH_SUMMARY_HDR  = "=== Performance Benchmark Summary ==="

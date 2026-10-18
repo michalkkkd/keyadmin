@@ -57,6 +57,9 @@ class TinyFrame:
 
         self.next_frame_id = 0
 
+        self.crc_hck_errors = 0
+        self.crc_pck_errors = 0
+
         self.reset_parser()
 
         self._CKSUM_BYTES = None # will be updated on first compose / accept
@@ -272,6 +275,7 @@ class TinyFrame:
                     hck = self._unpack(self.rbuf)
                     actual = self._cksum(self.rpayload)
                     if hck != actual:
+                        self.crc_hck_errors += 1
                         self.reset_parser()
                     else:
                         if self.rf.len == 0:
@@ -302,6 +306,7 @@ class TinyFrame:
                     pck = self._unpack(self.rbuf)
                     actual = self._cksum(self.rpayload)
                     if pck != actual:
+                        self.crc_pck_errors += 1
                         self.reset_parser()
                     else:
                         self.handle_rx_frame()

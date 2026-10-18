@@ -5,6 +5,7 @@ import random
 import msvcrt
 
 from keycomm.api.compass_api import CompassApi
+from keycomm.core.constants import RESP_OK_PREFIX
 from keyadmin.api.admin_api import AdminApi
 from keyadmin.core.constants import (
     ADMIN_MENU_TITLE,
@@ -54,6 +55,7 @@ from keyadmin.core.constants import (
     ADMIN_MSG_HB_VERIFY_WAKE,
     ADMIN_DEFAULT_USER_EMAIL,
     ADMIN_BENCHMARK_ITERATIONS,
+    ADMIN_BENCHMARK_LOG_STEP,
     ADMIN_MSG_BENCH_START_FMT,
     ADMIN_MSG_BENCH_ITER_FMT,
     ADMIN_MSG_BENCH_SUMMARY_HDR,
@@ -208,8 +210,8 @@ class KeySecMenu:
             error_count = 0
             latencies_ms = []
 
-            # Dynamic progress reporting: every 5% (e.g. 5,000 for 100k, 5 for 100)
-            log_step = max(1, total_iterations // 20)
+            # Progress reporting: every ADMIN_BENCHMARK_LOG_STEP iterations (default 100)
+            log_step = ADMIN_BENCHMARK_LOG_STEP if total_iterations > ADMIN_BENCHMARK_LOG_STEP else max(1, total_iterations // 10)
 
             t_start_all = time.perf_counter()
 
@@ -228,7 +230,8 @@ class KeySecMenu:
                         duration_ms = (t1 - t0) * 1000
                         latencies_ms.append(duration_ms)
 
-                        if res.strip().isdigit() and int(res.strip()) == expected:
+                        clean_res = res[len(RESP_OK_PREFIX):].strip() if res.startswith(RESP_OK_PREFIX) else res.replace("OK:", "").strip()
+                        if clean_res.lstrip('-').isdigit() and int(clean_res) == expected:
                             success_count += 1
                         else:
                             error_count += 1
