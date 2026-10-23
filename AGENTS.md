@@ -6,8 +6,8 @@ The AI Agent operating in this workspace MUST strictly adhere to the following e
 This file (AGENTS.md) and all documents it references (in the docs/agent_knowledge/ and docs/security/ folders) are the centralized knowledge base for both the **KeySec** and **KeyFirmware** projects. Agents working on KeyFirmware must reference these rules here. You no longer need to duplicate or synchronize these files to KeyFirmware.
 
 ### COMPILATION & FLASHING INSTRUCTIONS FOR THE AGENT
-1. To compile: Execute the batch script `C:\Users\god\Documents\STORMPROJECTS\KeyFirmware\build.bat`. Always check if compilation is successful (exit code 0).
-2. To flash: Execute the batch script explicitly `cd C:\Users\god\Documents\STORMPROJECTS\KeyFirmware\flashbat && .\xiao_mg24_flash.bat` (Note: Agent CAN and SHOULD flash the device autonomously using this command when needed). Check if flashing was successful.
+1. To compile: Execute the batch script `..\KeyFirmware\flashbat\compile.bat` (or from KeyFirmware root: `.\flashbat\compile.bat`). Always check if compilation is successful (exit code 0).
+2. To flash: Execute the batch script explicitly `cd ..\KeyFirmware\flashbat && .\flash.bat` (Note: Agent CAN and SHOULD flash the device autonomously using this command when needed). Check if flashing was successful.
 
 ## 1. KISS — Keep It Simple, Stupid
 **Prefer the simplest solution that correctly solves the problem.**

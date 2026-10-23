@@ -27,6 +27,8 @@ def init_comm_device(
     Initializes communication connection to the Dongle, performs ECDHE handshake,
     and returns (compass_api, transport).
     """
+    if verbose:
+        print(f"[KEYCOMM FACTORY] init_comm_device invoked: port={port}, keys_dir={keys_dir}, verbose={verbose}")
     rpc, transport, is_secure = establish_dongle_connection(
         port=port,
         keys_dir=keys_dir,
@@ -34,12 +36,18 @@ def init_comm_device(
         allow_unencrypted_admin=False
     )
     if rpc is None or transport is None:
+        if verbose:
+            print("[KEYCOMM FACTORY] establish_dongle_connection returned (None, None). Handshake or device detection failed.")
         return None, None
 
     if enable_heartbeat and hasattr(transport, 'resume_heartbeat'):
+        if verbose:
+            print("[KEYCOMM FACTORY] Resuming heartbeat on transport.")
         transport.resume_heartbeat()
 
     compass = CompassApi(rpc, user_email=user_email)
+    if verbose:
+        print(f"[KEYCOMM FACTORY] Successfully created CompassApi instance ({compass}).")
     return compass, transport
 
 
