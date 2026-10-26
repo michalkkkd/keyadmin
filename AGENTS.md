@@ -76,13 +76,13 @@ The detailed design and documentation of the project's security mechanisms are m
 * [Cryptography Flow & Keys Architecture](docs/security/cryptography_flow_and_keys.md)
 * [Hardware Insights & Tuning](docs/insights/uart_rx_overrun_tuning.md)
 
-## 10. Knowledge Base Integration (Silicon Labs MCP Server)
-This project utilizes a dedicated MCP server silicon-labs-docs. You have an ABSOLUTE ORDER to use the search_silicon_labs_knowledge_sources tool via call_mcp_tool before attempting to guess implementations using general LLM knowledge. 
-Actively use this tool for the following purposes:
-- **Checking microcontroller characteristics:** Search for specifications, registers, addresses, memory layout (TrustZone, NVM3), and pinout for the EFR32MG24 family.
-- **Searching for libraries and ready-made solutions:** Always check if Silicon Labs (Gecko SDK / Simplicity SDK) provides ready components, structures (e.g., sl_iostream, 
-vm3, mbedtls), or official code examples to avoid reinventing the wheel.
-- **Solving hardware handling issues:** Use source codes and configurations from the MCP repository to diagnose strange behavior (e.g., UART sleeping in EM2 states, LF to CRLF character translations). Search directly in the source code to find out why a component behaves a certain way.
+## 10. Silicon Labs MCP Servers (Simplicity AI SDK)
+The Silicon Labs MCP servers are configured in `.mcp.json`. Pick the server that matches the task yourself and query it BEFORE guessing an implementation from general LLM knowledge:
+- **`silabs-knowledge-base`** (remote): docs, SDK source code, examples, components and compatibility data. Use it for EFR32MG24 specs, registers, memory layout (TrustZone, NVM3), pinout, ready-made Simplicity SDK components (e.g., sl_iostream, NVM3, mbedtls), and for diagnosing odd hardware behavior (e.g., UART in EM2, LF/CRLF translation) by reading the component source.
+- **`silabs-ai-sdk-helpers`**: verifying the MCP setup and searching resolved SLC project symbols.
+- **`silabs-tool-locator`**: locating and running Silicon Labs CLI tools (`slc`, Simplicity Commander and related tools).
+- **`silabs-build-tool`**: building Makefile or CMake projects (e.g., KeyFirmware `cmake_gcc/`).
+- **`silabs-gdb-mcp`**: flashing firmware and running GDB debug sessions on the target.
 
 ## 11. Clean Code & Architecture Priority
 Clean code and proper architecture are the absolute priority. If a new feature or structural refactoring requires creating new files (e.g., separating logic to respect SoC or SRP), **DO NOT ask for permission to add files**. Create as many new files and directories as necessary to keep the codebase modular, clean, and strictly organized.

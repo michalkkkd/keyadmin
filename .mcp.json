@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "silabs-knowledge-base": {
+      "type": "http",
+      "url": "https://mcp.silabs.com/mcp"
+    },
+    "silabs-ai-sdk-helpers": {
+      "type": "stdio",
+      "command": "${USERPROFILE}/.silabs/slt/installs/archive/python-v3.10.4/python/python.exe",
+      "args": [
+        "${USERPROFILE}/.silabs/slt/installs/archive/ai_sdk_local_helpers/ai_sdk_local_helpers.py"
+      ]
+    },
+    "silabs-build-tool": {
+      "type": "stdio",
+      "command": "${USERPROFILE}/.silabs/slt/installs/archive/python-v3.10.4/python/python.exe",
+      "args": [
+        "${USERPROFILE}/.silabs/slt/installs/archive/build_tool_mcp/build-tool-mcp/build_tool_server.py"
+      ]
+    },
+    "silabs-gdb-mcp": {
+      "type": "stdio",
+      "command": "${USERPROFILE}/.silabs/slt/installs/archive/python-v3.10.4/python/python.exe",
+      "args": [
+        "${USERPROFILE}/.silabs/slt/installs/archive/gdb_mcp/gdb-mcp/mcu_debug_tool.py"
+      ]
+    },
+    "silabs-tool-locator": {
+      "type": "stdio",
+      "command": "${USERPROFILE}/.silabs/slt/installs/archive/tool-locator-mcp/tool-locator-mcp.exe",
+      "args": []
+    }
+  }
+}
