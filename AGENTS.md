@@ -63,6 +63,7 @@ To maintain order and readability of the rules, detailed project history, hardwa
 * [Software Architecture (KeySec & KeyFirmware)](docs/agent_knowledge/software_architecture.md)
 * [Architectural & Hardware Discoveries (SDK Bugs, RTC)](docs/agent_knowledge/hardware_discoveries.md)
 * [Compass Security Context](docs/agent_knowledge/compass_security_context.md)
+* [Dongle Provisioning, Build & Flash Scripts](docs/dongle_provisioning.md)
 
 ## Security Architecture
 
