@@ -1,0 +1,4 @@
+{
+  "note": "Dongles listed here can never be debug-locked by keyadmin tools (development units). Remove a serial only on purpose.",
+  "protected_serials": []
+}

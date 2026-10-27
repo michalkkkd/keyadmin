@@ -1,6 +1,7 @@
 import json
 import logging
 import zlib
+from typing import Optional
 
 from keycomm.core.protocol import RpcProtocol
 from keycomm.core.constants import (

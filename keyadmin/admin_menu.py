@@ -7,6 +7,10 @@ import msvcrt
 from keycomm.api.compass_api import CompassApi
 from keycomm.core.constants import RESP_OK_PREFIX
 from keyadmin.api.admin_api import AdminApi
+from keyadmin.secure_debug.secure_debug_service import SecureDebugService
+from keyadmin.secure_debug.secure_debug_store import SecureDebugStore
+from keyadmin.scripts.provision_dongle import DongleProvisioner
+from keyadmin.admin_factory import init_admin_device
 from keyadmin.core.constants import (
     ADMIN_MENU_TITLE,
     ADMIN_PROMPT_PAUSE,
@@ -14,6 +18,42 @@ from keyadmin.core.constants import (
     ADMIN_SEC_DIAGNOSTICS,
     ADMIN_SEC_TESTING,
     ADMIN_SEC_HEARTBEAT,
+    ADMIN_SEC_SECURE_DEBUG,
+    ADMIN_ACT_DEBUG_STATUS,
+    ADMIN_ACT_DEBUG_LOCK,
+    ADMIN_ACT_DEBUG_UNLOCK,
+    ACTION_DEBUG_LOCK_STATUS,
+    ACTION_DEBUG_LOCK_APPLY,
+    ACTION_DEBUG_UNLOCK,
+    ADMIN_HDR_DEBUG_STATUS,
+    ADMIN_HDR_DEBUG_LOCK,
+    ADMIN_HDR_DEBUG_UNLOCK,
+    SDL_CONFIRM_WORD,
+    SDL_PROMPT_CONFIRM_FMT,
+    SDL_MSG_LOCK_WARNING,
+    SDL_MSG_ABORTED,
+    SDL_MSG_ALREADY_LOCKED,
+    SDL_MSG_LOCK_OK,
+    SDL_MSG_UNLOCK_OK,
+    SDL_MSG_SAVED_TO_FMT,
+    SDL_MSG_BLACKBOX_READING,
+    SDL_ERR_DEVICE_PROTECTED_FMT,
+    ADMIN_SEC_FACTORY,
+    ADMIN_ACT_PROVISION,
+    ADMIN_HDR_PROVISION,
+    ACTION_PROVISION_DONGLE,
+    PROV_DEFAULT_LICENSE_DAYS,
+    PROV_DEFAULT_MAX_USERS,
+    PROV_MSG_MENU_WARNING,
+    PROV_PROMPT_DAYS_FMT,
+    PROV_PROMPT_USERS_FMT,
+    PROV_PROMPT_LOCK,
+    PROV_PROMPT_CONFIRM_FMT,
+    PROV_CONFIRM_WORD,
+    PROV_ANSWER_YES,
+    PROV_MSG_RECONNECTING,
+    PROV_ERR_RECONNECT,
+    PROV_ERR_INVALID_NUMBER_FMT,
     ADMIN_ACT_SYS_HEALTH,
     ADMIN_ACT_BATTERY,
     ADMIN_ACT_MEMORY,
@@ -92,6 +132,8 @@ class KeySecMenu:
         self.rpc = rpc
         self.admin = admin
         self.compass = compass
+        self.secure_debug = SecureDebugService(admin, SecureDebugStore(), port=getattr(transport, "port", None))
+        self.connected = True
 
     def _clear(self):
         os.system(CMD_CLEAR_WIN if os.name == OS_NAME_NT else CMD_CLEAR_POSIX)
@@ -116,6 +158,14 @@ class KeySecMenu:
             {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ADMIN_SEC_HEARTBEAT},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_HB_START, DICT_KEY_ID: ACTION_HB_START},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_HB_DISABLE, DICT_KEY_ID: ACTION_HB_DISABLE},
+            {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ""},
+            {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ADMIN_SEC_SECURE_DEBUG},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_DEBUG_STATUS, DICT_KEY_ID: ACTION_DEBUG_LOCK_STATUS},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_DEBUG_LOCK, DICT_KEY_ID: ACTION_DEBUG_LOCK_APPLY},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_DEBUG_UNLOCK, DICT_KEY_ID: ACTION_DEBUG_UNLOCK},
+            {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ""},
+            {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ADMIN_SEC_FACTORY},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_PROVISION, DICT_KEY_ID: ACTION_PROVISION_DONGLE},
             {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ""},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_EXIT, DICT_KEY_ID: ACTION_EXIT}
         ]
@@ -152,6 +202,8 @@ class KeySecMenu:
                 action_id = options[current_idx][DICT_KEY_ID]
                 self._clear()
                 self._execute_action(action_id)
+                if not self.connected:
+                    break
             elif key == MENU_KEY_ESC:
                 self._clear()
                 break
@@ -297,8 +349,112 @@ class KeySecMenu:
             self.transport.resume_heartbeat()
             self._pause()
 
+        elif action_id == ACTION_DEBUG_LOCK_STATUS:
+            print(ADMIN_HDR_DEBUG_STATUS)
+            self._run_secure_debug_action(self._show_debug_status)
+            self._pause()
+
+        elif action_id == ACTION_DEBUG_LOCK_APPLY:
+            print(ADMIN_HDR_DEBUG_LOCK)
+            self._run_secure_debug_action(self._apply_debug_lock)
+            self._pause()
+
+        elif action_id == ACTION_DEBUG_UNLOCK:
+            print(ADMIN_HDR_DEBUG_UNLOCK)
+            self._run_secure_debug_action(self._unlock_debug_port)
+            self._pause()
+
+        elif action_id == ACTION_PROVISION_DONGLE:
+            print(ADMIN_HDR_PROVISION)
+            try:
+                self._provision_dongle()
+            except Exception as e:
+                print(f"[-] {e}")
+            self._pause()
+
         elif action_id == ACTION_EXIT:
             pass
+
+    def _run_secure_debug_action(self, action) -> None:
+        try:
+            action()
+        except Exception as e:
+            print(f"[-] {e}")
+
+    def _show_debug_status(self) -> None:
+        print(self.secure_debug.describe(self.secure_debug.read_status()))
+
+    def _apply_debug_lock(self) -> None:
+        status = self.secure_debug.read_status()
+        print(self.secure_debug.describe(status))
+        if self.secure_debug.store.is_protected(status.serial):
+            print(SDL_ERR_DEVICE_PROTECTED_FMT.format(serial=status.serial,
+                                                      path=self.secure_debug.store.protected_list_path))
+            return
+        if status.is_secure_locked:
+            print(SDL_MSG_ALREADY_LOCKED)
+            return
+        print()
+        print(SDL_MSG_LOCK_WARNING)
+        if input(SDL_PROMPT_CONFIRM_FMT.format(word=SDL_CONFIRM_WORD)).strip() != SDL_CONFIRM_WORD:
+            print(SDL_MSG_ABORTED)
+            return
+        print(self.secure_debug.describe(self.secure_debug.apply_lock()))
+        print(SDL_MSG_LOCK_OK)
+
+    def _unlock_debug_port(self) -> None:
+        folder = self.secure_debug.unlock()
+        status = self.secure_debug.read_status()
+        print(self.secure_debug.describe(status))
+        print(SDL_MSG_UNLOCK_OK)
+        print(SDL_MSG_SAVED_TO_FMT.format(path=folder))
+        print(SDL_MSG_BLACKBOX_READING)
+        try:
+            print(self.secure_debug.dump_black_box(status.serial))
+        except Exception as e:
+            print(f"[-] {e}")
+        print(self.secure_debug.read_memory_hint(status.serial))
+
+    @staticmethod
+    def _ask_positive_int(prompt_fmt: str, default: int) -> int:
+        raw = input(prompt_fmt.format(default=default)).strip()
+        if not raw:
+            return default
+        if not raw.isdigit() or int(raw) <= 0:
+            raise ValueError(PROV_ERR_INVALID_NUMBER_FMT.format(value=raw))
+        return int(raw)
+
+    def _provision_dongle(self) -> None:
+        """Runs the factory pipeline on the connected dongle; the admin link is closed while it reflashes."""
+        print(PROV_MSG_MENU_WARNING)
+        print()
+        days = self._ask_positive_int(PROV_PROMPT_DAYS_FMT, PROV_DEFAULT_LICENSE_DAYS)
+        users = self._ask_positive_int(PROV_PROMPT_USERS_FMT, PROV_DEFAULT_MAX_USERS)
+        lock = input(PROV_PROMPT_LOCK).strip().lower() == PROV_ANSWER_YES
+        if input(PROV_PROMPT_CONFIRM_FMT.format(word=PROV_CONFIRM_WORD)).strip() != PROV_CONFIRM_WORD:
+            print(SDL_MSG_ABORTED)
+            return
+
+        port = getattr(self.transport, "port", None)
+        self.transport.close()
+        try:
+            DongleProvisioner(license_days=days, max_users=users, port=port, debug_lock=lock).run()
+        finally:
+            self._reconnect(port)
+
+    def _reconnect(self, port) -> None:
+        print(PROV_MSG_RECONNECTING)
+        compass, admin, transport = init_admin_device(port=port, user_email=ADMIN_DEFAULT_USER_EMAIL, verbose=False)
+        if admin is None:
+            print(PROV_ERR_RECONNECT)
+            self.connected = False
+            return
+        self.transport, self.rpc, self.admin, self.compass = transport, compass.rpc, admin, compass
+        self.secure_debug = SecureDebugService(admin, SecureDebugStore(), port=getattr(transport, "port", port))
+
+    def close(self) -> None:
+        if self.connected:
+            self.transport.close()
 
     def _get_key_with_esc(self):
         while True:

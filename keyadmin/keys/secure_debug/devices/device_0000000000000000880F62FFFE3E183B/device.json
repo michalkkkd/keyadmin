@@ -1,0 +1,64 @@
+{
+  "serial": "0000000000000000880F62FFFE3E183B",
+  "events": [
+    {
+      "timestamp": "2026-10-26T18:57:26+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T18:57:56+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T18:57:58+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T22:41:50+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T23:57:25+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T23:57:43+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-26T23:57:43+00:00",
+      "event": "LOCK",
+      "response": "OK: Secure debug lock applied",
+      "success": true
+    },
+    {
+      "timestamp": "2026-10-26T23:58:07+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-27T00:00:25+00:00",
+      "event": "UNLOCK",
+      "challenge": "1F755B66714F8C14FED5711C419CC52D",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
+    },
+    {
+      "timestamp": "2026-10-27T00:00:25+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-10-27T00:06:06+00:00",
+      "event": "STATUS"
+    }
+  ],
+  "usb_port": "COM10",
+  "last_status": {
+    "serial": "0000000000000000880F62FFFE3E183B",
+    "command_key": "MATCH",
+    "builtin_key_present": true,
+    "secure_debug_enabled": true,
+    "lock_applied": true,
+    "lock_active": false,
+    "device_erase_enabled": true
+  }
+}

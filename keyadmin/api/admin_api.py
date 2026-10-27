@@ -18,6 +18,13 @@ from keyadmin.core.constants import (
     MSG_SYS_HEALTH,
     MSG_GET_LOG_COUNT,
     MSG_GET_LOG_LINE,
+    MSG_DEBUG_LOCK_STATUS,
+    MSG_DEBUG_LOCK_APPLY,
+    MSG_DEBUG_LOCK_CHALLENGE,
+    MSG_DEBUG_LOCK_UNLOCK,
+    SDL_LOCK_TIMEOUT_SEC,
+    SDL_LOCK_MAX_RETRIES,
+    SDL_UNLOCK_TIMEOUT_SEC,
     ADMIN_ERR_LOG_SIZE_FAIL,
     ADMIN_MSG_NO_LOGS,
     ADMIN_MSG_FETCHING_LOGS_FMT,
@@ -75,6 +82,19 @@ class AdminApi:
 
     def get_battery_info(self) -> str:
         return self.rpc.execute_command(MSG_BATTERY_INFO)
+
+    def get_debug_lock_status(self) -> str:
+        return self.rpc.execute_command(MSG_DEBUG_LOCK_STATUS)
+
+    def apply_debug_lock(self) -> str:
+        return self.rpc.execute_command(MSG_DEBUG_LOCK_APPLY, timeout_sec=SDL_LOCK_TIMEOUT_SEC,
+                                        max_retries=SDL_LOCK_MAX_RETRIES)
+
+    def get_debug_challenge(self) -> str:
+        return self.rpc.execute_command(MSG_DEBUG_LOCK_CHALLENGE)
+
+    def open_debug_port(self, unlock_token: bytes) -> str:
+        return self.rpc.execute_command(MSG_DEBUG_LOCK_UNLOCK, unlock_token, timeout_sec=SDL_UNLOCK_TIMEOUT_SEC)
 
     def print_all_logs(self):
         try:

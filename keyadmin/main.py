@@ -55,7 +55,7 @@ def main():
     try:
         menu.run()
     finally:
-        transport.close()
+        menu.close()
 
 
 if __name__ == '__main__':

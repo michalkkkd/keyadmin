@@ -74,6 +74,7 @@ The detailed design and documentation of the project's security mechanisms are m
 * [Main Application Protection (Nuitka & Themida)](docs/security/app_protection_nuitka_themida.md)
 * [Hardware Anti-Tamper Protection](docs/security/antitamper.md)
 * [Cryptography Flow & Keys Architecture](docs/security/cryptography_flow_and_keys.md)
+* [Secure Debug Lock (SWD lock & challenge-response unlock)](docs/security/secure_debug_lock.md)
 * [Hardware Insights & Tuning](docs/insights/uart_rx_overrun_tuning.md)
 
 ## 10. Silicon Labs MCP Servers (Simplicity AI SDK)
