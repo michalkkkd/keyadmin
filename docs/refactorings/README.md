@@ -667,7 +667,7 @@ W plikach `.c` zastosowano precyzyjne makra dostępu, gwarantujące zero ingeren
 
 ### [RF-17] Przewijanie licznika timeoutu TinyFrame oparte na zegarze czasu rzeczywistego (RTC Sleeptimer) zamiast iteracji pętli CPU
 
-* **Komponent:** KeyFirmware (Non-Secure World / Application Core)
+* **Komponent:** KeyFirmware (Non-Secure World / rdzeń aplikacji)
 * **Pliki:**
   - [`app.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/app.c)
 * **Ocena powagi:** `[8/10]` – Eliminacja niedeterministycznych timeoutów parsera TinyFrame i zapobieganie zerwaniom transmisji przy zróżnicowanym obciążeniu CPU.
@@ -732,7 +732,7 @@ if (current_ticks - last_tf_tick_count >= step_ticks) {
 
 ### [RF-18] Reentrancja i asynchroniczne logowanie z przerwań (ISR) zabezpieczone sekcjami atomowymi i buforem kołowym
 
-* **Komponent:** KeyFirmware (Non-Secure World / Application Core)
+* **Komponent:** KeyFirmware (Non-Secure World / rdzeń aplikacji)
 * **Pliki:**
   - [`src/core/system_log.h`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/core/system_log.h)
   - [`src/core/system_log.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/core/system_log.c)
@@ -860,7 +860,7 @@ TinyFrame *TF_Init(TF_Peer peer_bit) {
 // cJSON.c - zablokowanie nieautoryzowanej alokacji sterty
 static void * CJSON_CDECL embedded_forbidden_malloc(size_t size) {
     (void)size;
-    return NULL; // Dynamic heap malloc forbidden in zero-fragmentation embedded firmware
+    return NULL; // Dynamiczny malloc ze sterty zabroniony w firmware bez fragmentacji pamięci
 }
 
 #define internal_malloc embedded_forbidden_malloc
@@ -876,7 +876,7 @@ static void * CJSON_CDECL embedded_forbidden_malloc(size_t size) {
 
 ### [RF-20] Optymalizacja złożoności obliczeniowej sortowania z $O(N^2)$ do $O(N \log N)$ (qsort) w modułach Safe Space
 
-* **Komponent:** KeyFirmware (Secure World / Calculation Logic)
+* **Komponent:** KeyFirmware (Secure World / logika obliczeniowa)
 * **Pliki:**
   - [`src/prod/logic/safe_space_estimates.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/prod/logic/safe_space_estimates.c)
   - [`src/prod/logic/safe_space_plots.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/prod/logic/safe_space_plots.c)
@@ -929,7 +929,7 @@ Identyczną optymalizację wdrożono w `safe_space_plots.c` dla tablic `g_stats_
 
 ### [RF-21] Ochrona pamięci BSS i ścisła izolacja globalnych hooków alokatora cJSON
 
-* **Komponent:** KeyFirmware (Secure World / Calculation Logic)
+* **Komponent:** KeyFirmware (Secure World / logika obliczeniowa)
 * **Pliki:**
   - [`src/prod/logic/sim_pk_gi.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/prod/logic/sim_pk_gi.c)
 * **Ocena powagi:** `[8/10]` – Zapobieganie uszkodzeniu pamięci RAM i niekontrolowanemu wyciekowi alokacji po przełączeniu zadań obliczeniowych.
@@ -1097,7 +1097,7 @@ if (!uart_rx_active && (current_ticks - last_nvm_repack_tick >= sl_sleeptimer_ms
 
 ### [RF-24] Synchronizacja wątkowa nadawania UART (ser.write) przeciw kolizjom Heartbeatu
 
-* **Komponent:** KeySec (Python / Host Transport Layer)
+* **Komponent:** KeySec (Python / warstwa transportowa hosta)
 * **Pliki:**
   - [`keycomm/core/transport.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/transport.py)
 * **Ocena powagi:** `[9/10]` – Wyeliminowanie bezpośredniego wyścigu wątków (Race Condition) pomiędzy asynchronicznym wątkiem Heartbeat a wątkiem aplikacji wysyłającym komendy RPC i dane payloadu.
@@ -1139,7 +1139,7 @@ def _tf_write(self, buf):
 ---
 
 ### [RF-25] Wyciek pamięci w słowniku `id_listeners` klasy TinyFrame
-* **Komponent:** KeySec (Python / Host Protocol Layer)
+* **Komponent:** KeySec (Python / warstwa protokołu hosta)
 * **Pliki:**
   - [`keycomm/core/TinyFrame.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/TinyFrame.py)
   - [`keycomm/core/transport.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/transport.py)
@@ -1187,7 +1187,7 @@ finally:
 ---
 
 ### [RF-26] Niewspółbieżna mutacja słownika `id_listeners` i `type_listeners`
-* **Komponent:** KeySec (Python / Host Protocol Layer)
+* **Komponent:** KeySec (Python / warstwa protokołu hosta)
 * **Pliki:**
   - [`keycomm/core/TinyFrame.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/TinyFrame.py)
 * **Ocena powagi:** `[8/10]` – Ryzyko wyjątku `RuntimeError: dictionary changed size during iteration` oraz utraty spójności słowników listenerów pomiędzy wątkiem odbiorczym RX a wątkami roboczymi.
@@ -1210,7 +1210,7 @@ Wprowadzono reentrant mutex `self.lock = threading.RLock()` w klasie `TinyFrame`
 ---
 
 ### [RF-27] Wyciek deskryptorów portu szeregowego i wątków demona przy błędach ECDHE
-* **Komponent:** KeySec (Python / Host Discovery & Transport)
+* **Komponent:** KeySec (Python / wykrywanie urządzeń i transport po stronie hosta)
 * **Pliki:**
   - [`keycomm/api/device_discovery.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/api/device_discovery.py)
   - [`keycomm/core/transport.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/transport.py)
@@ -1288,7 +1288,7 @@ def close(self):
 ---
 
 ### [RF-28] Separacja warstw (SoC) i eliminacja połykania wyjątków w CompassApi
-* **Komponent:** KeySec (Python / Public API Layer)
+* **Komponent:** KeySec (Python / warstwa publicznego API)
 * **Pliki:**
   - [`keycomm/api/compass_api.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/api/compass_api.py)
 * **Ocena powagi:** `[7/10]` – Łamanie zasady Separation of Concerns (SoC) przez nieprawidłowy import z warstwy UI do biblioteki komunikacyjnej oraz ciche połykanie wyjątków (`except: pass`).
@@ -1326,7 +1326,7 @@ logger = logging.getLogger("keycomm.api")
 ---
 
 ### [RF-29] Hierarchia BaseRunner i eliminacja duplikacji w safe_space_plots.py (DRY)
-* **Komponent:** KeySec (Python / Logic Layer)
+* **Komponent:** KeySec (Python / warstwa logiki)
 * **Pliki:**
   - [`keycomm/logic/safe_space_plots.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/logic/safe_space_plots.py)
 * **Ocena powagi:** `[7/10]` – Łamanie zasady DRY poprzez ręczną duplikację logiki pomiaru czasów, prędkości transmisji oraz formatowania logów debugowania w procedurach wykresów Safe Space.
@@ -1362,7 +1362,7 @@ def execute_safe_space_plots_A(...):
 ---
 
 ### [RF-30] Eliminacja kwadratowej alokacji pamięci w SafeSpaceEstimatesRunner
-* **Komponent:** KeySec (Python / Logic Layer)
+* **Komponent:** KeySec (Python / warstwa logiki)
 * **Pliki:**
   - [`keycomm/logic/safe_space_estimates.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/logic/safe_space_estimates.py)
 * **Ocena powagi:** `[7/10]` – Eliminacja złożoności pamięciowej $O(N^2)$ i zbędnego narzutu kompilacji formatu `struct.pack` na każdej iteracji pętli pakowania danych.
@@ -1405,7 +1405,7 @@ self.streamer.stream_payload(MSG_SAFE_SPACE_CHUNK, payload_bytes, chunk_size=149
 ---
 
 ### [RF-31] Szyfrowanie zapytania licencyjnego MSG_CHECK_LIC (0x02) i weryfikacji VRX w kanale AES-256-GCM
-* **Komponent:** KeyFirmware (C / Secure Routing)
+* **Komponent:** KeyFirmware (C / routing komend Secure)
 * **Pliki:**
   - [`src/prod/prod_router.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/prod/prod_router.c)
 * **Ocena powagi:** `[8/10]` – Eliminacja przesyłania wrażliwych danych licencyjnych i tokenów anty-replay VRX otwartym tekstem.
@@ -1432,7 +1432,7 @@ Zapytania i odpowiedzi licencyjne są teraz w pełni chronione szyfrowaniem AES-
 ---
 
 ### [RF-32] Fast-Fail przy próbie wywołania secure routes bez aktywnej sesji kryptograficznej
-* **Komponent:** KeyFirmware (C / Core Routing)
+* **Komponent:** KeyFirmware (C / główny routing komend)
 * **Pliki:**
   - [`src/core/router_common.c`](file:///c:/Users/god/Documents/STORMPROJECTS/KeyFirmware/src/core/router_common.c)
 * **Ocena powagi:** `[7/10]` – Eliminacja 5-sekundowych zawieszeń (timeoutów) klienta PC przy braku sesji.
@@ -1491,7 +1491,7 @@ Zegar RTC poprawnie synchronizuje czas po rozruchu, a operacje ustawiania czasu 
 ---
 
 ### [RF-34] Włączenie 0x02 (MSG_CHECK_LIC) do zbioru SECURE_CMD_IDS w RpcProtocol
-* **Komponent:** KeySec (Python / Protocol Layer)
+* **Komponent:** KeySec (Python / warstwa protokołu)
 * **Pliki:**
   - [`keycomm/core/protocol.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/protocol.py)
 * **Ocena powagi:** `[8/10]` – Synchronizacja klienta PC z firmwarem w zakresie szyfrowania zapytania licencyjnego.
@@ -1519,7 +1519,7 @@ Zapytania `check_license` wykonują się z szyfrowaniem AES-256-GCM. Testy integ
 ---
 
 ### [RF-35] Wątkowo bezpieczne zarządzanie nonce i monotonicznym licznikiem w SecureChannel
-* **Komponent:** KeySec (Python / Security Layer)
+* **Komponent:** KeySec (Python / warstwa bezpieczeństwa)
 * **Pliki:**
   - [`keycomm/core/secure_channel.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/secure_channel.py)
 * **Ocena powagi:** `[8/10]` – Ochrona przed wyścigami wątków niszczącymi unikalność nonce w szyfrowaniu AES-GCM.
@@ -1556,7 +1556,7 @@ Pełna stabilność przy równoległych zapytaniach i działającym wątku Heart
 ---
 
 ### [RF-36] Deterministyczna domyślna konfiguracja ID_BYTES = 1 i CRC32 w TinyFrame.__init__
-* **Komponent:** KeySec (Python / Core Transport)
+* **Komponent:** KeySec (Python / rdzeń transportu)
 * **Pliki:**
   - [`keycomm/core/TinyFrame.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/TinyFrame.py)
 * **Ocena powagi:** `[6/10]` – Zgodność zasady POLA (Principle of Least Astonishment) ze specyfikacją firmware'u.
@@ -1584,7 +1584,7 @@ Każda nowo utworzona instancja `TinyFrame` jest natywnie zgodna z ramkami mikro
 ---
 
 ### [RF-37] Automatyczny re-handshake sesji kryptograficznej przy utracie synchronizacji / resecie MCU
-* **Komponent:** KeySec (Python / Protocol Layer)
+* **Komponent:** KeySec (Python / warstwa protokołu)
 * **Pliki:**
   - [`keycomm/core/protocol.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/protocol.py)
 * **Ocena powagi:** `[7/10]` – Zapewnienie samoleczenia (self-healing) połączenia przy resecie MCU lub desynchronizacji nonce.
@@ -1612,7 +1612,7 @@ Połączenie samoczynnie wznawia szyfrowaną transmisję po resecie urządzenia 
 ---
 
 ### [RF-38] Gwarantowane zwalnianie deskryptora portu szeregowego i wątków przy awarii inicjalizacji SerialTransport
-* **Komponent:** KeySec (Python / Transport Layer)
+* **Komponent:** KeySec (Python / warstwa transportowa)
 * **Pliki:**
   - [`keycomm/core/transport.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/transport.py)
 * **Ocena powagi:** `[7/10]` – Wyeliminowanie wiszących portów COM (Access Denied) i osieroconych wątków.
@@ -1640,7 +1640,7 @@ W przypadku jakichkolwiek problemów sprzętowych port COM jest natychmiast zwal
 ---
 
 ### [RF-39] Buforowanie sparsowanego klucza publicznego Root CA w SecureChannel
-* **Komponent:** KeySec (Python / Security Layer)
+* **Komponent:** KeySec (Python / warstwa bezpieczeństwa)
 * **Pliki:**
   - [`keycomm/core/secure_channel.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/secure_channel.py)
 * **Ocena powagi:** `[6/10]` – Optymalizacja I/O i parsowania ASN.1 klucza Root CA.
@@ -1663,7 +1663,7 @@ Czas handshake'u uległ skróceniu, a odczyty z dysku zostały zredukowane.
 ---
 
 ### [RF-40] Odporność na brakujące klucze opcjonalne (BE_freq_I_threshold) w safe_space_calc
-* **Komponent:** compass (Python / C++ Integration Layer)
+* **Komponent:** compass (Python / warstwa integracji C++)
 * **Pliki:**
   - [`compass/app/level_x/safe_space_calc_cpp.py`](file:///c:/Users/god/Documents/STORMPROJECTS/compass/app/level_x/safe_space_calc_cpp.py)
   - [`compass/app/level_4/safe_space_calc_refactored.py`](file:///c:/Users/god/Documents/STORMPROJECTS/compass/app/level_4/safe_space_calc_refactored.py)
@@ -1696,7 +1696,7 @@ Przypadek `safe_space_calc_eafe596d844150a7ea918d3f6c39a837` przeszedł w 100% z
 ---
 
 ### [RF-41] Centralizacja komunikatów, identyfikatorów i stałych stringowych (Single Source of Truth) w KeyFirmware i KeySec
-* **Komponent:** KeyFirmware (C / Embedded) & KeySec (Python / Host Application & Transport)
+* **Komponent:** KeyFirmware (C / Embedded) & KeySec (Python / aplikacja hosta i transport)
 * **Pliki:**
   - [`KeySec/keyadmin/core/constants.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keyadmin/core/constants.py)
   - [`KeySec/keycomm/core/constants.py`](file:///c:/Users/god/Documents/STORMPROJECTS/KeySec/keycomm/core/constants.py)

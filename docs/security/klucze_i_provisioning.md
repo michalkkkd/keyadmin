@@ -260,7 +260,7 @@ Nowe klucze sesyjne powstają przy każdym połączeniu. Powstają też wtedy, g
 
 ### 5.2 Odblokowanie portu SWD (Secure Debug)
 
-Szczegóły: [secure_debug_lock.md](secure_debug_lock.md#3-keys-and-files).
+Szczegóły: [secure_debug_lock.md](secure_debug_lock.md#3-klucze-i-pliki).
 
 1. LOCK zapisuje publiczny Command Key w OTP. Od tej chwili chip ufa tylko temu kluczowi.
 2. Przy odblokowaniu dongle podaje numer seryjny chipa i wyzwanie (challenge) z Secure Engine. Keyadmin buduje z Command Key token odblokowania (w pamięci), wysyła go i od razu o nim zapomina. Token nie trafia na dysk; keyadmin dopisuje tylko zdarzenie UNLOCK do `device.json` (plik na PC z historią operacji keyadmin na tym donglu, nie log tamperów).
@@ -269,7 +269,7 @@ Szczegóły: [secure_debug_lock.md](secure_debug_lock.md#3-keys-and-files).
 
 ### 5.3 Log tamperów
 
-Szczegóły: [antitamper.md](antitamper.md#persistent-tamper-log-user-data-page).
+Szczegóły: [antitamper.md](antitamper.md#trwały-log-tamper-strona-user-data).
 
 1. Gdy coś się dzieje (np. otwarcie obudowy), dongle zapisuje 16-bajtowy wpis, wcześniej szyfrując go kluczem Tamper Log Key.
 2. Wpis trafia na stronę User Data `0x0FE00000`. Tej strony nie kasuje ani wipe, ani flashowanie.
@@ -302,7 +302,7 @@ Szczegóły: [antitamper.md](antitamper.md#persistent-tamper-log-user-data-page)
 | `keyadmin/keys/host_key.pem` (i to samo w `XRouter._HOST_KEY`) | Kopię odtworzysz z `xrouter.py`. Gdy zginą obie, nowy klucz wymaga przeflashowania wszystkich dongli i nowego wydania Compass. | Ktoś może napisać własny program, który dongle uzna za Compass (licencja i limit użytkowników dalej działają). |
 | `keycomm/keys/root_ca_pub.pem` | Odtworzysz go z `root_ca_key.pem`. | Nic się nie stanie, to klucz publiczny. |
 
-Obecne klucze w `keyadmin/keys/` to **klucze deweloperskie** i leżą w git. Przed prawdziwą produkcją wygeneruj nowe, trzymaj je poza repo i zrób kopię offline. Procedura dla Command Key: [secure_debug_lock.md](secure_debug_lock.md#5-regenerating-rotating-the-command-key).
+Obecne klucze w `keyadmin/keys/` to **klucze deweloperskie** i leżą w git. Przed prawdziwą produkcją wygeneruj nowe, trzymaj je poza repo i zrób kopię offline. Procedura dla Command Key: [secure_debug_lock.md](secure_debug_lock.md#5-ponowne-generowanie-rotacja-command-key).
 
 ---
 

@@ -1,115 +1,118 @@
-# Power Management and USB Detection (Battery Sleep)
+# Zarządzanie energią i wykrywanie USB (uśpienie na baterii)
 
-## Architectural Context
-The EFR32MG24 chip does not have a built-in hardware USB controller. On Seeed Studio XIAO MG24 development boards, USB connectivity is provided by an on-board coprocessor (SAMD11 / DAPLink CMSIS-DAP) acting as a USB-to-UART bridge. The EFR32MG24 communicates with it exclusively through pins `PA08` (TX) and `PA09` (RX) at 921,600 baud.
+## Kontekst architektoniczny
+Układ EFR32MG24 nie ma wbudowanego sprzętowego kontrolera USB. Na płytkach deweloperskich Seeed Studio XIAO MG24 łączność USB zapewnia umieszczony na płytce koprocesor (SAMD11 / DAPLink CMSIS-DAP), który pełni rolę mostka USB-UART. EFR32MG24 komunikuje się z nim wyłącznie przez piny `PA08` (TX) i `PA09` (RX) z prędkością 921 600 bodów.
 
-Because the backup battery (for the Real-Time Clock and anti-tamper circuitry) is permanently connected, the chip must automatically transition into ultra-low-power Deep Sleep mode (**EM3**) whenever the USB cable is unplugged, the PC enters sleep, or the host application terminates. Due to the lack of a dedicated hardware VBUS sense line routed to the EFR32 microcontroller, connection detection is handled **100% in software via an active Heartbeat and asynchronous Wake-on-RX protocol**.
+Ponieważ bateria podtrzymująca (zasilająca zegar czasu rzeczywistego RTC i obwody anti-tamper, czyli wykrywania ingerencji) jest podłączona na stałe, układ musi automatycznie przechodzić w tryb głębokiego uśpienia o ultraniskim poborze energii (**EM3**) za każdym razem, gdy kabel USB zostanie odłączony, komputer przejdzie w stan uśpienia albo aplikacja hosta zakończy działanie. Ponieważ do mikrokontrolera EFR32 nie doprowadzono dedykowanej sprzętowej linii wykrywania VBUS (napięcia zasilania z USB), wykrywanie połączenia odbywa się **w 100% programowo, za pomocą aktywnego protokołu Heartbeat i asynchronicznego wybudzania Wake-on-RX**.
 
 ---
 
-## Operating Modes (Energy Modes)
+## Tryby pracy (Energy Modes)
 
-The system operates across three distinct Silicon Labs Energy Modes (EM):
+System pracuje w trzech różnych trybach energetycznych Silicon Labs (Energy Modes, EM):
 
-| Mode | Name | CPU Core | Perypherals (EUSART0, DMA, Clocks) | Current Draw | Wakeup Latency | Description |
+| Tryb | Nazwa | Rdzeń CPU | Peryferia (EUSART0, DMA, zegary) | Pobór prądu | Czas wybudzenia | Opis |
 |:---|:---|:---|:---|:---:|:---:|:---|
-| **EM0** | **Active** | ARM Cortex-M33 running at 78 MHz | All high-speed clocks (HFXO/DPLL), DMA, EUSART, and Vault hardware crypto active | ~6–8 mA | 0 ns | Actively decrypting, executing secure algorithms (RPCs), and encrypting responses. |
-| **EM1** | **Active Idle** | Paused via `WFI` (Wait For Interrupt) | **100% active.** High-frequency oscillator (HFXO), DMA, and EUSART0 listen at 921,600 baud | ~1.5–2.5 mA | ~38 ns (3 CPU cycles) | Micro-sleep between UART bytes/packets. Preserves instantaneous 0-delay response. |
-| **EM3** | **Deep Sleep** | Powered down; RAM retained | High-speed clocks and UART disabled. Only ULFRCO (1 kHz) and GPIO interrupt detection active | **~1 µA** | ~10 µs | Ultra-low-power battery retention mode entered when host application heartbeat is absent. |
+| **EM0** | **Aktywny** | ARM Cortex-M33 pracuje z częstotliwością 78 MHz | Wszystkie szybkie zegary (HFXO/DPLL), DMA, EUSART i sprzętowa kryptografia Vault aktywne | ~6–8 mA | 0 ns | Aktywne odszyfrowywanie, wykonywanie bezpiecznych algorytmów (RPC) i szyfrowanie odpowiedzi. |
+| **EM1** | **Aktywny bezczynny** | Wstrzymany przez `WFI` (Wait For Interrupt, czekanie na przerwanie) | **W 100% aktywne.** Oscylator wysokiej częstotliwości (HFXO), DMA i EUSART0 nasłuchują z prędkością 921 600 bodów | ~1,5–2,5 mA | ~38 ns (3 cykle CPU) | Mikrouśpienie między bajtami/pakietami UART. Zachowuje natychmiastową odpowiedź bez opóźnień. |
+| **EM3** | **Głębokie uśpienie** | Wyłączony; zawartość RAM zachowana | Szybkie zegary i UART wyłączone. Aktywne są tylko ULFRCO (1 kHz) i wykrywanie przerwań GPIO | **~1 µA** | ~10 µs | Tryb oszczędzania baterii o ultraniskim poborze energii, uruchamiany, gdy brakuje sygnału heartbeat z aplikacji hosta. |
 
 ---
 
-## Software Solution Description (Heartbeat + Asynchronous Wake-on-RX)
+## Opis rozwiązania programowego (Heartbeat + asynchroniczne Wake-on-RX)
 
-The architecture is built upon two coordinated mechanisms:
+Architektura opiera się na dwóch współdziałających mechanizmach:
 
 ```
-[ PC Application (KeySec) ]
+[ Aplikacja PC (KeySec) ]
        |
-       |  (Sends RPCs & periodic MSG_PING heartbeats every 3.0s)
+       |  (Wysyła RPC i okresowe heartbeaty MSG_PING co 3,0 s)
        v
 +-----------------------------------------------------------------------------------+
-| 1. ACTIVE STATE (EM0 / EM1)                                                       |
-|    - Lock held: sl_power_manager_add_em_requirement(SL_POWER_MANAGER_EM1)         |
-|    - PA09 GPIO falling-edge interrupt is STRICTLY DISABLED to prevent ISR storms  |
-|    - EUSART0 and DMA receive bytes at 921,600 baud with zero overhead             |
-|    - Heartbeat refreshes inactivity_timer (4.5s countdown)                        |
+| 1. STAN AKTYWNY (EM0 / EM1)                                                       |
+|    - Blokada utrzymywana: sl_power_manager_add_em_requirement(SL_POWER_MANAGER_EM1) |
+|    - Przerwanie GPIO na zboczu opadającym PA09 jest BEZWZGLĘDNIE WYŁĄCZONE,       |
+|      aby zapobiec burzy przerwań (ISR)                                            |
+|    - EUSART0 i DMA odbierają bajty z prędkością 921 600 bodów bez narzutu         |
+|    - Heartbeat odświeża inactivity_timer (odliczanie 4,5 s)                       |
 +-----------------------------------------------------------------------------------+
        |
-       |  (Inactivity timeout: 4.5s without Heartbeat / Traffic)
+       |  (Przekroczenie czasu bezczynności: 4,5 s bez heartbeatu / ruchu)
        v
 +-----------------------------------------------------------------------------------+
-| 2. HEARTBEAT LOST WARNING (3.0s Transition)                                       |
-|    - Status LED turns ON solid for 3.0 seconds as a visual warning                |
-|    - Device remains in EM1 (can instantaneously recover if heartbeat arrives)     |
+| 2. OSTRZEŻENIE O UTRACIE HEARTBEATU (przejście 3,0 s)                             |
+|    - Dioda LED statusu świeci ciągle przez 3,0 sekundy jako ostrzeżenie wizualne  |
+|    - Urządzenie pozostaje w EM1 (może natychmiast wrócić, jeśli nadejdzie         |
+|      heartbeat)                                                                   |
 +-----------------------------------------------------------------------------------+
        |
-       |  (Warning expires without heartbeat resumption: total 7.5s elapsed)
+       |  (Ostrzeżenie mija bez wznowienia heartbeatu: łącznie upłynęło 7,5 s)
        v
 +-----------------------------------------------------------------------------------+
-| 3. DEEP SLEEP (EM3 Mode)                                                          |
-|    - Lock released: sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1)   |
-|    - PA09 GPIO falling-edge interrupt is ARMED (sl_gpio_enable_interrupts)         |
-|    - MCU enters EM3 (~1 µA consumption)                                           |
-|    - First falling edge on RX triggers rx_wakeup_callback, disarms GPIO ISR,     |
-|      restores EM1 requirement, and wakes MCU to EM0                               |
+| 3. GŁĘBOKIE UŚPIENIE (tryb EM3)                                                   |
+|    - Blokada zwolniona: sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1) |
+|    - Przerwanie GPIO na zboczu opadającym PA09 jest UZBROJONE                     |
+|      (sl_gpio_enable_interrupts)                                                  |
+|    - MCU przechodzi w EM3 (pobór ~1 µA)                                           |
+|    - Pierwsze zbocze opadające na RX wywołuje rx_wakeup_callback, rozbraja ISR    |
+|      GPIO, przywraca wymaganie EM1 i wybudza MCU do EM0                           |
 +-----------------------------------------------------------------------------------+
 ```
 
-### 1. Inactivity & Heartbeat Protocol (Ping-Pong Countdown)
-1. **First Heartbeat Gate**: Upon power-on boot, `sleep_feature_enabled` is initialized to `false`. The sleep timer countdown does not activate until the first valid `MSG_PING` is received from the host, preventing the MCU from going to sleep while awaiting initial configuration or immediately after flashing.
-2. **Periodic Host Heartbeat**: The host PC application (`KeySec/keycomm/core/transport.py`) maintains a background thread (`_heartbeat_loop`) that transmits `MSG_PING` frames every **3.0 seconds**.
-3. **Inactivity Countdown**: On the MCU, `trigger_led_timer()` restarts `inactivity_timer` with a **4.5-second timeout** (`INACTIVITY_TIMEOUT_MS = 4500`).
-4. **Heartbeat Lost Warning**: If 4.5 seconds elapse without communication:
-   - `inactivity_timer_callback` turns the status LED ON solid for **3.0 seconds** (`HEARTBEAT_LOST_LED_MS = 3000`).
-   - If the host resumes communication during these 3 seconds, `trigger_led_timer()` stops the countdown, turns off the warning LED, and restores normal operation.
-5. **Entry into EM3 Deep Sleep**: If no heartbeat arrives after the 3-second warning (total **7.5 seconds** of inactivity):
-   - `heartbeat_lost_timer_callback` turns off the LED.
-   - It removes the EM1 power requirement (`sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1)`).
-   - It enables the falling-edge GPIO external interrupt on `PA09`.
-   - The Silicon Labs Power Manager transitions the device into **EM3 Deep Sleep** (~1 µA).
+### 1. Protokół bezczynności i heartbeatu (odliczanie ping-pong)
+1. **Bramka pierwszego heartbeatu**: Po włączeniu zasilania i starcie `sleep_feature_enabled` jest inicjalizowane wartością `false`. Odliczanie timera uśpienia nie startuje, dopóki od hosta nie nadejdzie pierwszy prawidłowy `MSG_PING`. Dzięki temu MCU nie zasypia w oczekiwaniu na początkową konfigurację ani tuż po wgraniu firmware'u.
+2. **Okresowy heartbeat hosta**: Aplikacja hosta na PC (`KeySec/keycomm/core/transport.py`) utrzymuje wątek w tle (`_heartbeat_loop`), który wysyła ramki `MSG_PING` co **3,0 sekundy**.
+3. **Odliczanie bezczynności**: Na MCU `trigger_led_timer()` restartuje `inactivity_timer` z **limitem czasu 4,5 sekundy** (`INACTIVITY_TIMEOUT_MS = 4500`).
+4. **Ostrzeżenie o utracie heartbeatu**: Jeśli upłyną 4,5 sekundy bez komunikacji:
+   - `inactivity_timer_callback` włącza diodę LED statusu na stałe na **3,0 sekundy** (`HEARTBEAT_LOST_LED_MS = 3000`).
+   - Jeśli host wznowi komunikację w ciągu tych 3 sekund, `trigger_led_timer()` zatrzymuje odliczanie, gasi diodę ostrzegawczą i przywraca normalną pracę.
+5. **Wejście w głębokie uśpienie EM3**: Jeśli po 3-sekundowym ostrzeżeniu nie nadejdzie żaden heartbeat (łącznie **7,5 sekundy** bezczynności):
+   - `heartbeat_lost_timer_callback` gasi diodę LED.
+   - Usuwa wymaganie zasilania EM1 (`sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1)`).
+   - Włącza zewnętrzne przerwanie GPIO na zboczu opadającym na pinie `PA09`.
+   - Power Manager Silicon Labs przełącza urządzenie w **głębokie uśpienie EM3** (~1 µA).
 
-### 2. Interrupt Storm Prevention & Wake-on-RX
-To guarantee high-throughput UART communication stability at 921,600 baud:
-* **The PA09 GPIO Interrupt Storm Trap**: In early implementations, the GPIO falling-edge interrupt on PA09 remained active while communicating. At 921,600 baud, every start bit and zero bit generated hundreds of GPIO interrupts per packet, locking the sleeptimer queue and starving the 16-byte EUSART hardware FIFO.
-* **Strict Interrupt Isolation**:
-  - In EM0 and EM1, the GPIO external interrupt on PA09 is **strictly disabled** (`sl_gpio_disable_interrupts(1 << rx_wakeup_int_no)`).
-  - The GPIO interrupt is enabled **exclusively** when transitioning into EM3.
-  - When the PC transmits a wake-up byte (falling edge on RX), `rx_wakeup_callback` fires, **immediately disables the GPIO interrupt**, re-asserts `SL_POWER_MANAGER_EM1`, and returns `SL_POWER_MANAGER_WAKEUP`.
-  - All subsequent data bytes are processed purely by the EUSART hardware and DMA without any GPIO interrupt interference.
+### 2. Zapobieganie burzy przerwań i Wake-on-RX
+Aby zagwarantować stabilność wysokoprzepustowej komunikacji UART przy 921 600 bodów:
+* **Pułapka burzy przerwań GPIO na PA09**: We wczesnych implementacjach przerwanie GPIO na zboczu opadającym PA09 pozostawało aktywne podczas komunikacji. Przy 921 600 bodów każdy bit startu i każdy bit zerowy generował setki przerwań GPIO na pakiet, blokując kolejkę sleeptimera i „głodząc” 16-bajtowy sprzętowy FIFO EUSART (bufor odbiorczy układu).
+* **Ścisła izolacja przerwań**:
+  - W EM0 i EM1 zewnętrzne przerwanie GPIO na PA09 jest **bezwzględnie wyłączone** (`sl_gpio_disable_interrupts(1 << rx_wakeup_int_no)`).
+  - Przerwanie GPIO jest włączane **wyłącznie** przy przejściu do EM3.
+  - Gdy PC wyśle bajt wybudzający (zbocze opadające na RX), wywoływany jest `rx_wakeup_callback`, który **natychmiast wyłącza przerwanie GPIO**, ponownie ustawia `SL_POWER_MANAGER_EM1` i zwraca `SL_POWER_MANAGER_WAKEUP`.
+  - Wszystkie kolejne bajty danych są przetwarzane wyłącznie przez sprzętowy EUSART i DMA, bez żadnej ingerencji przerwań GPIO.
 
-### 3. PC-side Heartbeat Pause & Resume
-During intensive benchmarks or high-throughput batch operations, the host software can prevent thread contention on the serial bus using:
-- `transport.pause_heartbeat()`: Suspends automatic 3.0s `MSG_PING` transmissions.
-- `transport.resume_heartbeat()`: Restores automatic heartbeat transmissions.
+### 3. Wstrzymywanie i wznawianie heartbeatu po stronie PC
+Podczas intensywnych benchmarków lub wysokoprzepustowych operacji wsadowych oprogramowanie hosta może zapobiec rywalizacji wątków o magistralę szeregową za pomocą:
+- `transport.pause_heartbeat()`: wstrzymuje automatyczne wysyłanie `MSG_PING` co 3,0 s.
+- `transport.resume_heartbeat()`: przywraca automatyczne wysyłanie heartbeatu.
 
 ---
 
-## Use Case Scenarios (Edge Cases & Fail-Safes)
+## Scenariusze użycia (przypadki brzegowe i zabezpieczenia)
 
-### Scenario A: Device Disconnected ➔ Application Starts ➔ Device Plugged In
-* **Initial State:** Device is in EM3 Deep Sleep powered by battery. PC application waits for COM port discovery.
-* **Flow:** Device is plugged into USB. PC application opens the COM port and initiates the cryptographic handshake.
-* **Result:** The initial edge on RX immediately wakes the EFR32MG24 into EM0. The GPIO interrupt is disabled, the EM1 requirement is locked, the handshake completes, and periodic heartbeats keep the device active.
+### Scenariusz A: urządzenie odłączone ➔ start aplikacji ➔ podłączenie urządzenia
+* **Stan początkowy:** Urządzenie jest w głębokim uśpieniu EM3, zasilane z baterii. Aplikacja na PC czeka na wykrycie portu COM.
+* **Przebieg:** Urządzenie zostaje podłączone do USB. Aplikacja na PC otwiera port COM i rozpoczyna kryptograficzny handshake.
+* **Wynik:** Pierwsze zbocze na RX natychmiast wybudza EFR32MG24 do EM0. Przerwanie GPIO zostaje wyłączone, wymaganie EM1 zablokowane, handshake się kończy, a okresowe heartbeaty utrzymują urządzenie w stanie aktywnym.
 
-### Scenario B: Device Connected ➔ PC Application Starts
-* **Initial State:** Device is plugged into USB but in EM3 Deep Sleep because the PC application was previously closed (>7.5s ago).
-* **Flow:** User starts the application. Transport opens COM10 and sends the initial sync ping.
-* **Result:** The falling edge wakes the EFR32MG24 into EM0. Normal communication resumes instantly.
+### Scenariusz B: urządzenie podłączone ➔ start aplikacji na PC
+* **Stan początkowy:** Urządzenie jest podłączone do USB, ale znajduje się w głębokim uśpieniu EM3, ponieważ aplikacja na PC została wcześniej zamknięta (>7,5 s temu).
+* **Przebieg:** Użytkownik uruchamia aplikację. Warstwa transportowa otwiera COM10 i wysyła początkowy ping synchronizacyjny.
+* **Wynik:** Zbocze opadające wybudza EFR32MG24 do EM0. Normalna komunikacja zostaje natychmiast wznowiona.
 
-### Scenario C: Normal Operation ➔ Application Terminates or Crashes
-* **Initial State:** Device is in Active State (EM0/EM1), communicating normally.
-* **Flow:** PC application is closed or crashes unexpectedly. Background heartbeat transmissions cease.
-* **Result:** 
-  1. At $t = 4.5\text{ s}$, the MCU detects missed heartbeat and lights the status LED.
-  2. At $t = 7.5\text{ s}$, the warning expires; MCU enables PA09 GPIO interrupt, removes EM1 requirement, and enters EM3 Deep Sleep (~1 µA), fully conserving battery power.
+### Scenariusz C: normalna praca ➔ aplikacja kończy działanie lub ulega awarii
+* **Stan początkowy:** Urządzenie jest w stanie aktywnym (EM0/EM1) i normalnie się komunikuje.
+* **Przebieg:** Aplikacja na PC zostaje zamknięta lub nieoczekiwanie ulega awarii. Wysyłanie heartbeatu w tle ustaje.
+* **Wynik:** 
+  1. W chwili $t = 4.5\text{ s}$ MCU wykrywa brak heartbeatu i zapala diodę LED statusu.
+  2. W chwili $t = 7.5\text{ s}$ ostrzeżenie wygasa; MCU włącza przerwanie GPIO na PA09, usuwa wymaganie EM1 i przechodzi w głębokie uśpienie EM3 (~1 µA), w pełni oszczędzając energię baterii.
 
-### Scenario D: Normal Operation ➔ USB Cable Physically Disconnected
-* **Initial State:** Device is in Active State (EM0/EM1).
-* **Flow:** USB cable is unplugged. The on-board USB-UART bridge loses VBUS power.
-* **Result:** Identical to Scenario C. After 4.5s warning + 3.0s countdown, the EFR32MG24 safely drops into EM3 Deep Sleep on battery power.
+### Scenariusz D: normalna praca ➔ fizyczne odłączenie kabla USB
+* **Stan początkowy:** Urządzenie jest w stanie aktywnym (EM0/EM1).
+* **Przebieg:** Kabel USB zostaje odłączony. Mostek USB-UART na płytce traci zasilanie VBUS.
+* **Wynik:** Tak samo jak w scenariuszu C. Po ostrzeżeniu po 4,5 s i odliczaniu 3,0 s EFR32MG24 bezpiecznie przechodzi w głębokie uśpienie EM3 na zasilaniu bateryjnym.
 
-### Scenario E: Spurious Glitches or Foreign Serial Ports (False Wakeup)
-* **Initial State:** Device is in EM3 Deep Sleep.
-* **Flow:** Electrical noise on the cable or a third-party serial monitor (e.g. PuTTY) opens the port and sends a stray character.
-* **Result:** The EFR32MG24 wakes to EM0/EM1 and disarms the GPIO interrupt. However, because the foreign program does not send valid `KeySec` cryptographic heartbeats, the MCU times out after 4.5s + 3.0s and securely returns to EM3 Deep Sleep.
+### Scenariusz E: przypadkowe zakłócenia lub obce programy portu szeregowego (fałszywe wybudzenie)
+* **Stan początkowy:** Urządzenie jest w głębokim uśpieniu EM3.
+* **Przebieg:** Zakłócenia elektryczne na kablu lub zewnętrzny monitor portu szeregowego (np. PuTTY) otwiera port i wysyła przypadkowy znak.
+* **Wynik:** EFR32MG24 wybudza się do EM0/EM1 i rozbraja przerwanie GPIO. Ponieważ jednak obcy program nie wysyła prawidłowych kryptograficznych heartbeatów `KeySec`, po 4,5 s + 3,0 s MCU przekracza limit czasu i bezpiecznie wraca do głębokiego uśpienia EM3.

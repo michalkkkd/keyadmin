@@ -1,16 +1,16 @@
-﻿# Communication Encryption Mechanism
+﻿# Mechanizm szyfrowania komunikacji
 
-## 1. Overview
-The communication channel between the Windows Python application (host) and the USB dongle operates over a virtual serial port (VCOM/UART). Since this bus can be monitored using software USB sniffers (like Wireshark or Device Monitoring Studio), the TinyFrame RPC payloads must be heavily encrypted.
+## 1. Przegląd
+Kanał komunikacji między aplikacją Python na Windows (host) a donglem USB działa przez wirtualny port szeregowy (VCOM/UART). Ponieważ tę magistralę można podsłuchiwać programowymi snifferami USB (np. Wireshark lub Device Monitoring Studio), payloady RPC TinyFrame muszą być silnie zaszyfrowane.
 
-## 2. Design and Implementation (Phase 2/3)
-* **Underlying Protocol:** TinyFrame acts as the binary transport layer, ensuring frame integrity (CRC16/CRC32) and routing.
-* **Cryptographic Payload:** Inside the TinyFrame data payload, all parameters and responses will be encrypted.
-* **Proposed Algorithms:**
-  - **Key Exchange:** ECDH (Elliptic-Curve Diffie-Hellman) performed upon initial handshake to establish a shared session key, preventing replay and eavesdropping attacks.
-  - **Symmetric Encryption:** AES-256-GCM or ChaCha20-Poly1305. These algorithms provide Authenticated Encryption with Associated Data (AEAD), ensuring both confidentiality and integrity.
-* **Hardware Acceleration:** The EFR32MG24 features an integrated crypto engine (Secure Vault) that will be utilized to perform AES operations with zero CPU overhead and extreme security against side-channel attacks.
+## 2. Projekt i implementacja (faza 2/3)
+* **Protokół bazowy:** TinyFrame pełni rolę binarnej warstwy transportowej, zapewniając integralność ramek (CRC16/CRC32) i routing.
+* **Payload kryptograficzny:** Wewnątrz payloadu danych TinyFrame wszystkie parametry i odpowiedzi będą szyfrowane.
+* **Proponowane algorytmy:**
+  - **Wymiana kluczy:** ECDH (Elliptic-Curve Diffie-Hellman, czyli Diffie-Hellman na krzywych eliptycznych) wykonywany podczas początkowego handshake'u w celu ustalenia wspólnego klucza sesji, co zapobiega atakom typu replay i podsłuchowi.
+  - **Szyfrowanie symetryczne:** AES-256-GCM lub ChaCha20-Poly1305. Algorytmy te zapewniają uwierzytelnione szyfrowanie z danymi powiązanymi (Authenticated Encryption with Associated Data, AEAD), gwarantując zarówno poufność, jak i integralność.
+* **Akceleracja sprzętowa:** EFR32MG24 ma zintegrowany silnik kryptograficzny (Secure Vault), który zostanie wykorzystany do wykonywania operacji AES bez obciążania CPU i z bardzo wysoką odpornością na ataki side-channel (ataki kanałem bocznym).
 
-## 3. Threat Mitigation
-* **Replay Attacks:** Handshakes will include a nonce or a monotonic counter to ensure a captured "Calculate Algorithm" command cannot be sent repeatedly.
-* **Man-in-the-Middle (MitM):** The initial public keys will be pre-provisioned or signed to ensure the host is talking to a genuine dongle, and the dongle is talking to a genuine host application.
+## 3. Ograniczanie zagrożeń
+* **Ataki typu replay:** Handshake'i będą zawierać nonce lub licznik monotoniczny, aby przechwyconego polecenia „Calculate Algorithm” nie dało się wysłać ponownie.
+* **Man-in-the-Middle (MitM):** Początkowe klucze publiczne będą wgrane z góry (pre-provisioning) lub podpisane, aby host miał pewność, że komunikuje się z oryginalnym donglem, a dongle - z oryginalną aplikacją hosta.

@@ -1,18 +1,18 @@
-﻿# Software Architecture
+﻿# Architektura oprogramowania
 
-## A. KeySec (Python on PC)
-**Main file:** compass_rpc.py (and newer 	ransport.py)
-A control application from Windows sending commands. It maintains a serial connection. We resolved buffer desynchronization issues in it using eset_input_buffer() and intentionally disabled reliance on the hardware DTR reset, ensuring a stable, smooth connection (reading in chunks via ead_all).
+## A. KeySec (Python na PC)
+**Główny plik:** compass_rpc.py (oraz nowszy `transport.py`)
+Aplikacja sterująca w Windows, wysyłająca polecenia. Utrzymuje połączenie szeregowe. Problemy z desynchronizacją bufora rozwiązaliśmy w niej za pomocą `reset_input_buffer()` i celowo wyłączyliśmy poleganie na sprzętowym resecie DTR, co zapewnia stabilne, płynne połączenie (odczyt porcjami przez `read_all`).
 
-## B. KeyFirmware (C on silicon)
-**Main file:** pp.c in the IDE (Simplicity Studio).
-Firmware that constantly listens to the VCOM port (without blocking the core) using the native SDK (sl_iostream_getchar). It parses full lines and invokes RPC procedures. It sends the response back using the lightning-fast sl_iostream_write(), adding a microsecond blocking delay (sl_sleeptimer_delay_millisecond) to give data physical time to leave the port before the next Bluetooth stack tick.
+## B. KeyFirmware (C na krzemie)
+**Główny plik:** `app.c` w IDE (Simplicity Studio).
+Firmware, który stale nasłuchuje na porcie VCOM (bez blokowania rdzenia) przy użyciu natywnego SDK (sl_iostream_getchar). Parsuje pełne linie i wywołuje procedury RPC. Odpowiedź odsyła błyskawiczną funkcją sl_iostream_write(), dodając mikrosekundowe opóźnienie blokujące (sl_sleeptimer_delay_millisecond), aby dane fizycznie zdążyły opuścić port przed kolejnym tickiem stosu Bluetooth.
 
-### COMPILATION INSTRUCTIONS FOR THE AGENT
-1. To compile: cd cmake_gcc && cmake --build --preset default_config
-2. To flash: .\xiao_mg24_flash.bat (or Python script) located in cmake_gcc\build\base.
+### INSTRUKCJE KOMPILACJI DLA AGENTA
+1. Kompilacja: cd cmake_gcc && cmake --build --preset default_config
+2. Flashowanie: .\xiao_mg24_flash.bat (lub skrypt Python) w katalogu cmake_gcc\build\base.
 
-## TrustZone Strategy and Target Architecture (Phase 3+)
-Ultimately, the code will be split into two physical projects enforced by the Cortex-M33 processor (ARM TrustZone):
-1. **Non-Secure World (Project B):** Handles open code, USB and UART operations, the event loop (pp.c, pc_router.c, dmin_cli.c), and raw NVM3 disk (security_nvm.c).
-2. **Secure World (Project A):** A fortified environment. This will house the logic verifying license validity (security_rtc.c) and the main, secret logic of the algorithms (compass_core.cpp). This code uses NSC (Non-Secure Callables) gateways to allow the Non-Secure side to query the secure zone.
+## Strategia TrustZone i architektura docelowa (faza 3+)
+Docelowo kod zostanie podzielony na dwa fizyczne projekty, których rozdział wymusza procesor Cortex-M33 (ARM TrustZone):
+1. **Świat Non-Secure (projekt B):** Obsługuje otwarty kod, operacje USB i UART, pętlę zdarzeń (`app.c`, `rpc_router.c`, `admin_cli.c`) oraz surowy dysk NVM3 (security_nvm.c).
+2. **Świat Secure (projekt A):** Wzmocnione środowisko. Znajdzie się tu logika weryfikująca ważność licencji (security_rtc.c) oraz główna, tajna logika algorytmów (compass_core.cpp). Ten kod korzysta z bramek NSC (Non-Secure Callables), dzięki którym strona Non-Secure może odpytywać strefę bezpieczną.

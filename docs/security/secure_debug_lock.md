@@ -1,251 +1,251 @@
-# Secure Debug Lock (SWD Lock with Challenge-Response Unlock)
+# Secure Debug Lock (blokada SWD z odblokowaniem typu challenge-response)
 
-> **Scope:** KeyFirmware (Seeed XIAO MG24 / EFR32MG24, Secure Engine "Secure Vault High") + KeySec `keyadmin` tooling.
-> **Status:** Implemented. Applied **only on request** (`provision_dongle.py <days> <users> --lock`, CLI or admin menu).
-> **Verified on hardware:** status, challenge, rejection of invalid tokens, protected-device refusal.
-> **Not yet verified on hardware:** a real lock followed by a successful unlock (writes OTP; to be done on a spare board).
+> **Zakres:** KeyFirmware (Seeed XIAO MG24 / EFR32MG24, Secure Engine "Secure Vault High") + narzędzia KeySec `keyadmin`.
+> **Status:** Zaimplementowane. Stosowane **tylko na żądanie** (`provision_dongle.py <days> <users> --lock`, z CLI lub z menu administracyjnego).
+> **Zweryfikowane na sprzęcie:** status, challenge, odrzucanie nieprawidłowych tokenów, odmowa dla urządzeń chronionych.
+> **Jeszcze niezweryfikowane na sprzęcie:** prawdziwa blokada, a po niej udane odblokowanie (zapisuje OTP; do wykonania na zapasowej płytce).
 
 ---
 
-## 1. What changes when the lock is enabled
+## 1. Co się zmienia po włączeniu blokady
 
-Without the lock, anyone with a 2-wire SWD probe (or the XIAO's on-board CMSIS-DAP) can halt the CPU, dump the whole flash and RAM, single-step the secure world and reflash arbitrary firmware.
+Bez blokady każdy, kto ma 2-przewodową sondę SWD (albo wbudowany w XIAO interfejs CMSIS-DAP), może zatrzymać CPU, zrzucić całą pamięć flash i RAM, wykonywać krok po kroku kod świata Secure i wgrać dowolny firmware.
 
-Enabling Secure Debug Lock performs three Secure Engine (SE) operations, in this order:
+Włączenie Secure Debug Lock wykonuje trzy operacje Secure Engine (SE, wbudowany w układ moduł bezpieczeństwa), w tej kolejności:
 
-| Step | SE operation | Persistence | Effect |
+| Krok | Operacja SE | Trwałość | Efekt |
 |---|---|---|---|
-| 1 | `sl_se_init_otp_key(SL_SE_KEY_TYPE_IMMUTABLE_AUTH)` | **OTP, permanent** | Installs our **public Command Key**. From now on this chip trusts only unlock tokens signed by the matching private key. |
-| 2 | `sl_se_enable_secure_debug()` | SE config (reset by device erase) | Allows a temporary, cryptographically authorized unlock. Must happen **before** step 3. |
-| 3 | `sl_se_apply_debug_lock()` | SE config (reset by device erase) | Closes the debug access port on every boot. |
+| 1 | `sl_se_init_otp_key(SL_SE_KEY_TYPE_IMMUTABLE_AUTH)` | **OTP (pamięć jednokrotnego zapisu), na stałe** | Instaluje nasz **publiczny Command Key**. Od tej chwili układ ufa wyłącznie tokenom odblokowującym podpisanym pasującym kluczem prywatnym. |
+| 2 | `sl_se_enable_secure_debug()` | Konfiguracja SE (resetowana przez device erase) | Pozwala na tymczasowe, kryptograficznie autoryzowane odblokowanie. Musi nastąpić **przed** krokiem 3. |
+| 3 | `sl_se_apply_debug_lock()` | Konfiguracja SE (resetowana przez device erase) | Zamyka port dostępu debug przy każdym uruchomieniu. |
 
-What is deliberately **not** done: `disabledeviceerase`. Device erase stays available as a last-resort recovery.
+Celowo **nie** wykonujemy: `disabledeviceerase`. Device erase (pełne kasowanie układu) pozostaje dostępny jako ostateczna metoda odzyskania układu.
 
-### What it protects against
-* **Firmware / IP extraction over SWD:** the proprietary Compass algorithms in the secure world, the license logic and the tamper log can no longer be read with a debugger.
-* **Live debugging attacks:** halting the CPU, patching the license check in RAM, reading session keys from RAM, single-stepping TrustZone code.
-* **Reflashing the dongle** with modified firmware while keeping its NVM3 state (license, identity key, certificate).
+### Przed czym chroni
+* **Wyciąganie firmware'u / własności intelektualnej przez SWD:** zastrzeżonych algorytmów Compass w świecie Secure, logiki licencji i logu tamper nie da się już odczytać debuggerem.
+* **Ataki przez debugowanie na żywo:** zatrzymanie CPU, łatanie sprawdzania licencji w RAM, odczyt kluczy sesji z RAM, wykonywanie kodu TrustZone krok po kroku.
+* **Ponowne flashowanie dongla** zmodyfikowanym firmware'em z zachowaniem jego stanu NVM3 (licencja, klucz tożsamości, certyfikat).
 
-### What it does NOT change
-* Normal operation: Compass, VCOM/USB RPC, encrypted sessions, license and user limits work exactly as before.
-* The RAM logs over USB (`MSG_GET_LOG_*`) still work without any unlock.
-* **Device erase** is still possible: it re-opens the port but wipes the **entire** main flash (firmware, NVM3 license, identity key, certificate). Only the User Data page with the encrypted tamper log survives. An attacker gains an empty chip, never our data.
-* The identity key in NVM3 is PUF-wrapped (dongles provisioned with firmware from 2026-10-30 on); the lock adds protection for code, RAM and the license data, which wrapping does not cover.
+### Czego NIE zmienia
+* Normalnego działania: Compass, VCOM/USB RPC, szyfrowane sesje, licencja i limity użytkowników działają dokładnie jak wcześniej.
+* Logi RAM przez USB (`MSG_GET_LOG_*`) nadal działają bez żadnego odblokowania.
+* **Device erase** nadal jest możliwy: ponownie otwiera port, ale kasuje **całą** główną pamięć flash (firmware, licencję w NVM3, klucz tożsamości, certyfikat). Przetrwa tylko strona User Data z zaszyfrowanym logiem tamper. Atakujący zyskuje pusty układ, nigdy nasze dane.
+* Klucz tożsamości w NVM3 jest opakowany kluczem PUF (dongle provisionowane firmware'em od 2026-10-30); blokada dodaje ochronę kodu, RAM i danych licencji, czego opakowanie nie obejmuje.
 
-### How the firmware implements it
-* **Secure world** ([`KeyFirmware/src/secure/sec_debug_lock.c`](../../../KeyFirmware/src/secure/sec_debug_lock.c)): all SE calls; the public Command Key is **compiled in** from [`debug_command_pubkey.h`](../../../KeyFirmware/src/secure/debug_command_pubkey.h) and is never accepted from the host, so nobody can install their own key through the RPC.
-* **NSC gates** (`nsc_debug_lock_*` in `nsc_interface.c`): pointer validation; the unlock token is copied into secure memory before use.
-* **Non-secure router** ([`KeyFirmware/src/core/debug_lock_router.c`](../../../KeyFirmware/src/core/debug_lock_router.c)): plaintext RPC commands, present in **both** production and provisioning firmware:
+### Jak firmware to implementuje
+* **Świat Secure** ([`KeyFirmware/src/secure/sec_debug_lock.c`](../../../KeyFirmware/src/secure/sec_debug_lock.c)): wszystkie wywołania SE; publiczny Command Key jest **wkompilowany** z [`debug_command_pubkey.h`](../../../KeyFirmware/src/secure/debug_command_pubkey.h) i nigdy nie jest przyjmowany od hosta, więc nikt nie zainstaluje własnego klucza przez RPC.
+* **Bramki NSC** (`nsc_debug_lock_*` w `nsc_interface.c`): walidacja wskaźników; token odblokowujący jest kopiowany do pamięci Secure przed użyciem.
+* **Router świata Non-Secure** ([`KeyFirmware/src/core/debug_lock_router.c`](../../../KeyFirmware/src/core/debug_lock_router.c)): jawne (nieszyfrowane) komendy RPC, obecne **zarówno** w firmware produkcyjnym, jak i provisioningowym:
 
-| ID | Command | Payload | Response |
+| ID | Komenda | Payload | Odpowiedź |
 |---|---|---|---|
 | `0x60` | STATUS | – | `SERIAL:<32 hex>;CMD_KEY:NONE/MATCH/MISMATCH;BUILTIN_KEY;SECURE_DEBUG;LOCK_APPLIED;LOCK_ACTIVE;DEVICE_ERASE` |
-| `0x61` | LOCK | – | One-way and idempotent. Refused if the firmware has no built-in key or the OTP holds a different key. |
+| `0x61` | LOCK | – | Jednokierunkowa i idempotentna. Odrzucana, jeśli firmware nie ma wbudowanego klucza albo OTP zawiera inny klucz. |
 | `0x62` | CHALLENGE | – | `SERIAL:<32 hex>;CHALLENGE:<32 hex>` |
-| `0x63` | UNLOCK | 220-byte token | Opens the debug port **until the next reset / power cycle**. |
+| `0x63` | UNLOCK | token 220-bajtowy | Otwiera port debug **do najbliższego resetu / wyłączenia zasilania**. |
 
-Plaintext is intentional: the SE itself verifies the token (serial number + current challenge + Command Key signature), and UNLOCK must keep working on a dongle whose identity certificate or session layer is broken.
-
----
-
-## 2. A dongle comes back from a customer: what can we do?
-
-**Without unlocking (USB only):** read system health, tamper counters, battery, RTC, license, and the RAM log buffer through the admin console.
-
-**After `secure_debug_lock.py unlock`** (port open until the next reset):
-
-| Action | How | Notes |
-|---|---|---|
-| Read the encrypted tamper event log (User Data page `0x0FE00000`, 1 KB) | Done and decoded automatically after `unlock`; manually: `python -m pyocd cmd ... -M attach -c "savemem 0x0FE00000 1024 <file>"`, decode with `keyadmin/scripts/read_tamper_log.py --file <file>` (the exact command is printed by the tool) | Use **attach** mode: a reset re-locks the port. |
-| Dump any flash / RAM region, inspect the secure world | pyOCD / GDB in attach mode | Full access: non-secure + secure, invasive + non-invasive. |
-| Debug a fault live | GDB attach | Port stays open until reset. |
-| Reflash firmware (update / fix) | `unlock`, then `flash.bat` or `set_production_mode.bat` | The reset at the end of flashing re-locks the port, so a separate re-lock is not needed. The OTP key and the lock stay. |
-| Re-provision (new license, new customer) | `unlock` → `set_factory_mode.bat` → provisioning over USB → `unlock` again (provisioning firmware also has `0x63`) → `set_production_mode.bat` | NVM3 is preserved by flashing; use `MSG_ADMIN_WIPE` in factory mode for a clean slate. |
-
-**Limitations:**
-* The VCOM unlock needs **running firmware**. After a tamper live wipe no unlock is needed: the Secure Engine device erase also resets the debug lock, so the tamper log (User Data page, kept by the erase) can be read directly over SWD and decrypted with `tamper_log_key.bin` (see [antitamper.md](antitamper.md)). If the firmware is broken for another reason, the unlock must go through the debug interface instead: Simplicity Commander with a J-Link and the same key (`commander security unlock --command-key debug_command_key.pem`). This path has not been tested on the XIAO yet.
-* The **OTP key can never be removed**. A unit locked with a given Command Key is tied to it for life.
-* Last resort: a full **device erase** through the SE debug interface (e.g. `commander device recover`). It re-opens the port permanently but destroys everything except OTP. Whether the XIAO's on-board CMSIS-DAP can issue it via pyOCD is unverified; a J-Link on the SWD pads is the known-good path.
+Jawny tekst jest zamierzony: SE sam weryfikuje token (numer seryjny + bieżący challenge + podpis Command Key), a UNLOCK musi działać także na donglu, którego certyfikat tożsamości lub warstwa sesji są uszkodzone.
 
 ---
 
-## 3. Keys and files
+## 2. Dongle wraca od klienta: co możemy zrobić?
 
-### 3.1 Where each key lives
+**Bez odblokowania (tylko USB):** odczytać przez konsolę administracyjną stan systemu, liczniki tamper, baterię, RTC, licencję i bufor logów w RAM.
 
-| Key | Where | Purpose |
+**Po `secure_debug_lock.py unlock`** (port otwarty do najbliższego resetu):
+
+| Działanie | Jak | Uwagi |
 |---|---|---|
-| **Root CA private key** | `keyadmin/keys/root_ca_key.pem` (host) | Signs each dongle's identity public key during provisioning (`provision_dongle.py`). |
-| **Root CA public key** | `keyadmin/keys/root_ca_pub.pem`, `keycomm/keys/root_ca_pub.pem`, shipped with Compass | Compass checks that a dongle's identity certificate was signed by us (genuine dongle). |
-| **Device identity key** | Inside each dongle (NVM3 of the Secure world, PUF-wrapped `SL_PSA_KEY_LOCATION_WRAPPED`; older dongles plain until re-provisioned; never sent out) | Signs the ECDHE handshake, which proves the dongle's identity and prevents MitM. |
-| **Device certificate** | Inside each dongle (NVM3) | Root CA signature over the identity public key. |
-| **Command Key, private** | `keyadmin/keys/debug_command_key.pem` (host) | **One per product/factory, not per device, and the only unlock secret.** keyadmin signs every unlock token with it, in memory. |
-| **Command Key, public** | `keyadmin/keys/debug_command_pubkey.pem` + compiled into firmware (`debug_command_pubkey.h`) + OTP of each locked dongle | The trust anchor the SE uses to verify unlock tokens. |
-| **Session keys** | RAM only (ECDHE + HKDF, AES-256-GCM) | Per-connection encryption; unrelated to the debug lock. |
+| Odczyt zaszyfrowanego logu zdarzeń tamper (strona User Data `0x0FE00000`, 1 KB) | Wykonywany i dekodowany automatycznie po `unlock`; ręcznie: `python -m pyocd cmd ... -M attach -c "savemem 0x0FE00000 1024 <file>"`, dekodowanie przez `keyadmin/scripts/read_tamper_log.py --file <file>` (dokładną komendę wypisuje narzędzie) | Używaj trybu **attach**: reset ponownie blokuje port. |
+| Zrzut dowolnego obszaru flash / RAM, inspekcja świata Secure | pyOCD / GDB w trybie attach | Pełny dostęp: Non-Secure + Secure, inwazyjny + nieinwazyjny. |
+| Debugowanie błędu na żywo | GDB attach | Port pozostaje otwarty do resetu. |
+| Ponowne wgranie firmware'u (aktualizacja / poprawka) | `unlock`, potem `flash.bat` lub `set_production_mode.bat` | Reset na końcu flashowania ponownie blokuje port, więc osobne ponowne blokowanie nie jest potrzebne. Klucz w OTP i blokada pozostają. |
+| Ponowny provisioning (nowa licencja, nowy klient) | `unlock` → `set_factory_mode.bat` → provisioning przez USB → ponownie `unlock` (firmware provisioningowy też ma `0x63`) → `set_production_mode.bat` | Flashowanie zachowuje NVM3; aby zacząć od zera, użyj `MSG_ADMIN_WIPE` w trybie fabrycznym. |
 
-The Root CA chain and the Command Key chain are **independent**. The Root CA proves "this dongle is genuine" to Compass. The Command Key proves "this host is the manufacturer" to the dongle's Secure Engine.
+**Ograniczenia:**
+* Odblokowanie przez VCOM wymaga **działającego firmware'u**. Po kasowaniu tamper na żywo (live wipe) odblokowanie nie jest potrzebne: device erase wykonany przez Secure Engine resetuje też blokadę debug, więc log tamper (strona User Data, zachowana przez kasowanie) można odczytać bezpośrednio przez SWD i odszyfrować kluczem `tamper_log_key.bin` (zob. [antitamper.md](antitamper.md)). Jeśli firmware jest uszkodzony z innego powodu, odblokowanie musi przejść przez interfejs debug: Simplicity Commander z J-Linkiem i tym samym kluczem (`commander security unlock --command-key debug_command_key.pem`). Ta ścieżka nie była jeszcze testowana na XIAO.
+* **Klucza w OTP nigdy nie da się usunąć**. Układ zablokowany danym Command Key jest z nim związany na zawsze.
+* Ostateczność: pełny **device erase** przez interfejs debug SE (np. `commander device recover`). Otwiera port na stałe, ale niszczy wszystko poza OTP. Nie sprawdzono, czy wbudowany w XIAO CMSIS-DAP potrafi go wykonać przez pyOCD; sprawdzoną ścieżką jest J-Link podłączony do padów SWD.
 
-### 3.2 Unlock chain of trust
+---
+
+## 3. Klucze i pliki
+
+### 3.1 Gdzie znajduje się każdy klucz
+
+| Klucz | Gdzie | Przeznaczenie |
+|---|---|---|
+| **Klucz prywatny Root CA** | `keyadmin/keys/root_ca_key.pem` (host) | Podpisuje klucz publiczny tożsamości każdego dongla podczas provisioningu (`provision_dongle.py`). |
+| **Klucz publiczny Root CA** | `keyadmin/keys/root_ca_pub.pem`, `keycomm/keys/root_ca_pub.pem`, dostarczany z Compass | Compass sprawdza, czy certyfikat tożsamości dongla został podpisany przez nas (oryginalny dongle). |
+| **Klucz tożsamości urządzenia** | Wewnątrz każdego dongla (NVM3 świata Secure, opakowany kluczem PUF `SL_PSA_KEY_LOCATION_WRAPPED`; starsze dongle jawnie do czasu ponownego provisioningu; nigdy nie opuszcza urządzenia) | Podpisuje handshake ECDHE, co dowodzi tożsamości dongla i zapobiega atakom MitM. |
+| **Certyfikat urządzenia** | Wewnątrz każdego dongla (NVM3) | Podpis Root CA nad publicznym kluczem tożsamości. |
+| **Command Key, prywatny** | `keyadmin/keys/debug_command_key.pem` (host) | **Jeden na produkt/fabrykę, nie na urządzenie, i jedyny sekret odblokowujący.** keyadmin podpisuje nim każdy token odblokowujący, w pamięci. |
+| **Command Key, publiczny** | `keyadmin/keys/debug_command_pubkey.pem` + wkompilowany w firmware (`debug_command_pubkey.h`) + OTP każdego zablokowanego dongla | Kotwica zaufania, której SE używa do weryfikacji tokenów odblokowujących. |
+| **Klucze sesji** | Tylko RAM (ECDHE + HKDF, AES-256-GCM) | Szyfrowanie pojedynczego połączenia; niezwiązane z blokadą debug. |
+
+Łańcuch Root CA i łańcuch Command Key są **niezależne**. Root CA dowodzi wobec Compass, że „ten dongle jest oryginalny”. Command Key dowodzi wobec Secure Engine dongla, że „ten host to producent”.
+
+### 3.2 Łańcuch zaufania przy odblokowaniu
 
 ```
-debug_command_key.pem (private, factory-wide)
-        │ at every unlock, in memory: new throwaway certificate key, certificate signed by the Command Key
+debug_command_key.pem (prywatny, wspólny dla całej fabryki)
+        │ przy każdym odblokowaniu, w pamięci: nowy jednorazowy klucz certyfikatu, certyfikat podpisany Command Key
         ▼
-access certificate      = magic | auth bits | SE serial[16] | cert_pubkey[64] | signature[64]   (156 B)
-        │ throwaway certificate key signs
+certyfikat dostępu      = magic | auth bits | SE serial[16] | cert_pubkey[64] | signature[64]   (156 B)
+        │ jednorazowy klucz certyfikatu podpisuje
         ▼
-challenge response      = DEBUG_ACCESS_CMD | unlock params | challenge[16]                     (24 B)
+odpowiedź na challenge  = DEBUG_ACCESS_CMD | unlock params | challenge[16]                     (24 B)
 
-unlock token            = access certificate + challenge signature                             (220 B)
+token odblokowujący     = certyfikat dostępu + podpis challenge'u                              (220 B)
 ```
 
-The SE format needs the two-step chain (certificate + challenge signature), but keyadmin builds both in memory from the Command Key at every unlock and saves neither: **the Command Key is the only unlock secret.**
+Format SE wymaga dwustopniowego łańcucha (certyfikat + podpis challenge'u), ale keyadmin przy każdym odblokowaniu buduje oba elementy w pamięci z Command Key i żadnego nie zapisuje: **Command Key jest jedynym sekretem odblokowującym.**
 
-The SE accepts the token only if:
-1. the certificate was signed by the Command Key stored in **its** OTP;
-2. the serial number in the certificate is **its own**, so a token cannot be reused on another dongle;
-3. the challenge signature matches its **current** challenge. The challenge stays the same until rolled; we do not roll it, because tokens are made only in the factory and never stored.
+SE akceptuje token tylko wtedy, gdy:
+1. certyfikat został podpisany Command Key zapisanym w **jego** OTP;
+2. numer seryjny w certyfikacie jest **jego własnym**, więc tokenu nie można użyć ponownie na innym donglu;
+3. podpis challenge'u pasuje do jego **bieżącego** challenge'u. Challenge pozostaje ten sam, dopóki nie zostanie zmieniony (rolled); nie zmieniamy go, bo tokeny powstają wyłącznie w fabryce i nigdy nie są przechowywane.
 
-### 3.3 `keyadmin/keys/` folder layout
+### 3.3 Struktura folderu `keyadmin/keys/`
 
 ```
 keyadmin/keys/
-├── root_ca_key.pem                 Root CA private key (identity chain)
-├── root_ca_pub.pem                 Root CA public key
-├── debug_command_key.pem           Command Key private (CURRENT KEY IS A DEVELOPMENT KEY)
-├── debug_command_pubkey.pem        Command Key public (same bytes as debug_command_pubkey.h)
+├── root_ca_key.pem                 Klucz prywatny Root CA (łańcuch tożsamości)
+├── root_ca_pub.pem                 Klucz publiczny Root CA
+├── debug_command_key.pem           Command Key prywatny (OBECNY KLUCZ JEST KLUCZEM DEWELOPERSKIM)
+├── debug_command_pubkey.pem        Command Key publiczny (te same bajty co debug_command_pubkey.h)
 └── secure_debug/
-    ├── protected_devices.json      Serials that keyadmin tools will NEVER lock (development boards)
+    ├── protected_devices.json      Numery seryjne, których narzędzia keyadmin NIGDY nie zablokują (płytki deweloperskie)
     └── devices/
-        └── device_<SE serial>/     One folder per dongle, named after the 16-byte Secure Engine serial
-            ├── device.json         Last status + history of STATUS / LOCK / UNLOCK events (timestamp, port, response)
-            └── userdata_dump.bin   User Data page dump (tamper log, written by pyOCD)
+        └── device_<SE serial>/     Jeden folder na dongle, nazwany 16-bajtowym numerem seryjnym Secure Engine
+            ├── device.json         Ostatni status + historia zdarzeń STATUS / LOCK / UNLOCK (timestamp, port, odpowiedź)
+            └── userdata_dump.bin   Zrzut strony User Data (log tamper, zapisany przez pyOCD)
 ```
 
-No unlock material (certificate, its key, token) is ever written here.
+Żaden materiał odblokowujący (certyfikat, jego klucz, token) nigdy nie jest tu zapisywany.
 
-**Serial number:** each EFR32MG24 has a factory-unique 16-byte SE serial number (for example `0000000000000000880F62FFFE3E183B`; the last 8 bytes are the chip's EUI-64). It differs from the USB serial of the XIAO's on-board USB bridge, so do not use the COM port identity to name devices.
+**Numer seryjny:** każdy EFR32MG24 ma unikalny, nadany fabrycznie 16-bajtowy numer seryjny SE (na przykład `0000000000000000880F62FFFE3E183B`; ostatnie 8 bajtów to EUI-64 układu). Różni się on od numeru seryjnego USB wbudowanego w XIAO mostka USB, więc nie używaj tożsamości portu COM do nazywania urządzeń.
 
 
 ---
 
-## 4. How enabling the lock works now
+## 4. Jak obecnie działa włączanie blokady
 
-| Entry point | Locks? | Details |
+| Punkt wejścia | Blokuje? | Szczegóły |
 |---|---|---|
-| `compile.bat` | No | Builds both firmwares; embeds the public Command Key from `debug_command_pubkey.h`. |
-| `flash.bat`, `set_factory_mode.bat`, `set_production_mode.bat` | No | Only flash via pyOCD. On a locked dongle they work only right after an `unlock`. |
-| `python keyadmin/scripts/provision_dongle.py <days> <users>` | **No** | compile → factory firmware → secrets → production firmware → verify. The lock step is skipped. |
-| `python keyadmin/scripts/provision_dongle.py <days> <users> --lock` | **Yes** | After verification: protected check → already-locked check → typed `LOCK` confirmation (`--yes` skips it) → `0x61` → readback. |
-| Admin console, section *FACTORY* → *Provision Dongle* | Only if answered `y` | Same pipeline; asks for days, users, lock, and a typed `PROVISION` confirmation. |
-| `python keyadmin/scripts/secure_debug_lock.py lock` | Yes | Same flow, standalone. |
-| Admin console (`python keyadmin/main.py`), section *SECURE DEBUG LOCK (SWD)* | Yes | Status / Apply lock (asks to type `LOCK`) / Unlock until next reset. |
+| `compile.bat` | Nie | Buduje oba firmware'y; osadza publiczny Command Key z `debug_command_pubkey.h`. |
+| `flash.bat`, `set_factory_mode.bat`, `set_production_mode.bat` | Nie | Tylko flashują przez pyOCD. Na zablokowanym donglu działają wyłącznie zaraz po `unlock`. |
+| `python keyadmin/scripts/provision_dongle.py <days> <users>` | **Nie** | kompilacja → firmware fabryczny → sekrety → firmware produkcyjny → weryfikacja. Krok blokady jest pomijany. |
+| `python keyadmin/scripts/provision_dongle.py <days> <users> --lock` | **Tak** | Po weryfikacji: sprawdzenie listy chronionych → sprawdzenie, czy już zablokowany → potwierdzenie przez wpisanie `LOCK` (`--yes` je pomija) → `0x61` → ponowny odczyt. |
+| Konsola administracyjna, sekcja *FACTORY* → *Provision Dongle* | Tylko po odpowiedzi `y` | Ten sam pipeline; pyta o liczbę dni, użytkowników, blokadę oraz o potwierdzenie przez wpisanie `PROVISION`. |
+| `python keyadmin/scripts/secure_debug_lock.py lock` | Tak | Ten sam przebieg, samodzielnie. |
+| Konsola administracyjna (`python keyadmin/main.py`), sekcja *SECURE DEBUG LOCK (SWD)* | Tak | Status / Apply lock (prosi o wpisanie `LOCK`) / Unlock until next reset. |
 
-`secure_debug_lock.py lock` flow:
-1. Connects and reads STATUS (serial, OTP key state, lock flags) and records it in `device.json`.
-2. **Refuses** if the serial is in `protected_devices.json`; nothing is sent to the dongle.
-3. Exits OK if the dongle is already secure-locked.
-4. **Smoke test:** requires an established encrypted ECDHE session (genuine, provisioned dongle running production firmware) and a valid license check.
-5. Shows the warning and asks the operator to type `LOCK` (skipped with `--yes`).
-6. Sends `0x61`, re-reads STATUS and verifies `LOCK_APPLIED=1`, `SECURE_DEBUG=1`, `CMD_KEY=MATCH`; records the result.
+Przebieg `secure_debug_lock.py lock`:
+1. Łączy się i odczytuje STATUS (numer seryjny, stan klucza w OTP, flagi blokady), po czym zapisuje go w `device.json`.
+2. **Odmawia**, jeśli numer seryjny jest w `protected_devices.json`; nic nie jest wysyłane do dongla.
+3. Kończy się sukcesem, jeśli dongle jest już zablokowany (secure-locked).
+4. **Smoke test:** wymaga nawiązanej szyfrowanej sesji ECDHE (oryginalny, sprovisionowany dongle z firmware'em produkcyjnym) i poprawnego sprawdzenia licencji.
+5. Pokazuje ostrzeżenie i prosi operatora o wpisanie `LOCK` (pomijane z `--yes`).
+6. Wysyła `0x61`, ponownie odczytuje STATUS i sprawdza `LOCK_APPLIED=1`, `SECURE_DEBUG=1`, `CMD_KEY=MATCH`; zapisuje wynik.
 
-Safety layers against accidental locking of development boards:
-1. `protected_devices.json` (add the connected board with `secure_debug_lock.py protect`; remove a serial only by editing the file);
-2. `--lock` must be passed explicitly to `provision_dongle.py` (or `y` answered in the menu) and confirmed by typing `LOCK`;
-3. firmware built before a Command Key existed (`BUILTIN_KEY:0`) cannot lock at all.
+Warstwy zabezpieczeń przed przypadkowym zablokowaniem płytek deweloperskich:
+1. `protected_devices.json` (podłączoną płytkę dodaje się przez `secure_debug_lock.py protect`; numer seryjny usuwa się tylko ręczną edycją pliku);
+2. `--lock` trzeba jawnie przekazać do `provision_dongle.py` (albo odpowiedzieć `y` w menu) i potwierdzić, wpisując `LOCK`;
+3. firmware zbudowany przed powstaniem Command Key (`BUILTIN_KEY:0`) w ogóle nie potrafi zablokować.
 
-Other CLI commands: `status`, `unlock` (builds the token in memory, records the event in `device.json`, dumps the tamper log and prints the pyOCD command), `protect`. Options: `--port COMx`, `--store DIR` (device data), `--keys DIR` (Command Key folder).
+Inne komendy CLI: `status`, `unlock` (buduje token w pamięci, zapisuje zdarzenie w `device.json`, zrzuca log tamper i wypisuje komendę pyOCD), `protect`. Opcje: `--port COMx`, `--store DIR` (dane urządzeń), `--keys DIR` (folder z Command Key).
 
 ---
 
-## 5. Regenerating (rotating) the Command Key
+## 5. Ponowne generowanie (rotacja) Command Key
 
 `generate_debug_command_key.py`:
-* creates `debug_command_key.pem` + `debug_command_pubkey.pem` in `keyadmin/keys/` (or `--keys DIR`);
-* **refuses to overwrite** an existing key;
-* writes the public key into `KeyFirmware/src/secure/debug_command_pubkey.h` (with a SHA-256 fingerprint);
-* `--header-only` regenerates the header from an existing key without creating a new one.
+* tworzy `debug_command_key.pem` + `debug_command_pubkey.pem` w `keyadmin/keys/` (lub `--keys DIR`);
+* **odmawia nadpisania** istniejącego klucza;
+* zapisuje klucz publiczny do `KeyFirmware/src/secure/debug_command_pubkey.h` (wraz z odciskiem SHA-256);
+* `--header-only` generuje ponownie nagłówek z istniejącego klucza, nie tworząc nowego.
 
-### Consequences of a new key
-The OTP key of a dongle never changes, so after a rotation two populations exist:
+### Skutki nowego klucza
+Klucz w OTP dongla nigdy się nie zmienia, więc po rotacji istnieją dwie grupy urządzeń:
 
-| Dongle state | With new firmware (new key built in) | How to unlock it |
+| Stan dongla | Z nowym firmware'em (wbudowany nowy klucz) | Jak go odblokować |
 |---|---|---|
-| Never locked (OTP empty) | LOCK installs the **new** key | New key |
-| Locked with the **old** key | STATUS shows `CMD_KEY:MISMATCH`; LOCK is refused (it is already locked anyway) | Needs the **old** Command Key: `secure_debug_lock.py unlock --keys <old keys dir>` |
+| Nigdy nie zablokowany (OTP puste) | LOCK instaluje **nowy** klucz | Nowy klucz |
+| Zablokowany **starym** kluczem | STATUS pokazuje `CMD_KEY:MISMATCH`; LOCK jest odrzucany (i tak jest już zablokowany) | Wymaga **starego** Command Key: `secure_debug_lock.py unlock --keys <old keys dir>` |
 
-### Procedure for the move to real production
-1. Generate the production key into a separate folder: `python keyadmin/scripts/generate_debug_command_key.py --keys <production keys dir>`. This also rewrites the firmware header.
-2. Rebuild with `compile.bat` and confirm the fingerprint in `debug_command_pubkey.h`.
-3. Lock production dongles. The lock itself does not read the private key (the firmware installs its built-in public key), but unlocks do. `provision_dongle.py ... --lock` therefore works unchanged. For unlocks, use `secure_debug_lock.py unlock --keys <production keys dir>`. The admin console always uses the default `keyadmin/keys`.
-4. **Keep the development key**: dongles already locked with it depend on it forever.
-5. Store the production private key **offline / outside git** with a backup. The current development key, and the Root CA private key, are tracked in git, which is acceptable for development only.
+### Procedura przejścia do prawdziwej produkcji
+1. Wygeneruj klucz produkcyjny do osobnego folderu: `python keyadmin/scripts/generate_debug_command_key.py --keys <production keys dir>`. To również nadpisuje nagłówek firmware'u.
+2. Przebuduj przez `compile.bat` i potwierdź odcisk w `debug_command_pubkey.h`.
+3. Zablokuj dongle produkcyjne. Sama blokada nie odczytuje klucza prywatnego (firmware instaluje swój wbudowany klucz publiczny), ale odblokowania już tak. `provision_dongle.py ... --lock` działa więc bez zmian. Do odblokowań używaj `secure_debug_lock.py unlock --keys <production keys dir>`. Konsola administracyjna zawsze używa domyślnego `keyadmin/keys`.
+4. **Zachowaj klucz deweloperski**: dongle już nim zablokowane zależą od niego na zawsze.
+5. Przechowuj produkcyjny klucz prywatny **offline / poza git**, z kopią zapasową. Obecny klucz deweloperski oraz klucz prywatny Root CA są śledzone w git, co jest dopuszczalne wyłącznie na etapie rozwoju.
 
-**Losing a Command Key** means every dongle locked with it can only be recovered by a full device erase (license and identity lost; the tamper log in the User Data page survives).
+**Utrata Command Key** oznacza, że każdy nim zablokowany dongle da się odzyskać tylko przez pełny device erase (licencja i tożsamość przepadają; log tamper na stronie User Data przetrwa).
 
 ---
 
-## 6. The three modes: never locked, locked, unlocked until reset
+## 6. Trzy tryby: nigdy nie zablokowany, zablokowany, odblokowany do resetu
 
-### 6.1 What SWD is, and why the XIAO makes it a shortcut
+### 6.1 Czym jest SWD i dlaczego XIAO robi z niego skrót
 
-**SWD (Serial Wire Debug)** is ARM's two-wire debug interface (`SWDIO` data + `SWCLK` clock) built into every Cortex-M core, including the EFR32MG24's Cortex-M33. It is not a normal communication port. It is a direct door into the chip's internals:
+**SWD (Serial Wire Debug)** to dwuprzewodowy interfejs debug firmy ARM (`SWDIO` dane + `SWCLK` zegar), wbudowany w każdy rdzeń Cortex-M, w tym w Cortex-M33 układu EFR32MG24. To nie jest zwykły port komunikacyjny. To bezpośrednie drzwi do wnętrza układu:
 
-* SWD talks to the **Debug Access Port (DAP)**. Behind it sits the **AHB-AP**, a bus master on the chip's internal memory bus, just like the CPU.
-* Through the AHB-AP a debugger can **read and write any address**: the whole flash (firmware and NVM3 with license data), RAM (runtime state, session keys, intermediate results), and all peripheral registers.
-* It can also **halt the CPU**, single-step instructions, set breakpoints, and change registers. The firmware cannot notice or prevent any of this. A halted CPU runs no anti-tamper code.
-* It is how firmware is programmed in the first place: `flash.bat`, `set_factory_mode.bat` and `set_production_mode.bat` all write flash over SWD (via pyOCD).
+* SWD komunikuje się z **Debug Access Port (DAP)**. Za nim znajduje się **AHB-AP**, master magistrali na wewnętrznej magistrali pamięci układu, tak samo jak CPU.
+* Przez AHB-AP debugger może **czytać i zapisywać dowolny adres**: całą pamięć flash (firmware i NVM3 z danymi licencji), RAM (stan w czasie działania, klucze sesji, wyniki pośrednie) i wszystkie rejestry peryferiów.
+* Może też **zatrzymać CPU**, wykonywać instrukcje krok po kroku, ustawiać breakpointy i zmieniać rejestry. Firmware nie może tego zauważyć ani temu zapobiec. Zatrzymany CPU nie wykonuje żadnego kodu anti-tamper.
+* W ten sposób w ogóle programuje się firmware: `flash.bat`, `set_factory_mode.bat` i `set_production_mode.bat` zapisują flash przez SWD (za pomocą pyOCD).
 
-On a normal board, using SWD needs physical effort: open the case, find the debug pads, solder or clip wires, and own a debug probe (J-Link, ST-Link, ...). **The Seeed XIAO MG24 removes all of that.** It has a small USB bridge MCU on the board that runs **CMSIS-DAP** firmware, so the debug probe is part of the dongle itself. Over the **same USB cable** the PC sees two things:
+Na zwykłej płytce użycie SWD wymaga fizycznego wysiłku: otwarcia obudowy, znalezienia padów debug, przylutowania lub podpięcia przewodów i posiadania sondy debug (J-Link, ST-Link, ...). **Seeed XIAO MG24 eliminuje to wszystko.** Ma na płytce mały mikrokontroler mostka USB z firmware'em **CMSIS-DAP**, więc sonda debug jest częścią samego dongla. Przez **ten sam kabel USB** komputer widzi dwie rzeczy:
 
-| USB interface | What it is | Who uses it |
+| Interfejs USB | Czym jest | Kto go używa |
 |---|---|---|
-| Serial port (VCOM, e.g. `COM10`) | UART bridge to the EFR32 firmware | Compass, keycomm and keyadmin: RPC commands the firmware chooses to answer |
-| CMSIS-DAP debug probe (HID) | **SWD bridge** to the EFR32 debug port | pyOCD, flash scripts; and anyone else with free tools |
+| Port szeregowy (VCOM, np. `COM10`) | Mostek UART do firmware'u EFR32 | Compass, keycomm i keyadmin: komendy RPC, na które firmware zdecyduje się odpowiedzieć |
+| Sonda debug CMSIS-DAP (HID) | **Mostek SWD** do portu debug EFR32 | pyOCD, skrypty flashujące; a także każdy inny z darmowymi narzędziami |
 
-So anyone holding the dongle can plug it into a laptop, install pyOCD (`pip install pyocd`) and dump the whole chip with one command. No case opening, no soldering, no special hardware. That is the "SWD shortcut", and it is why an unlocked dongle must never leave the factory.
+Każdy, kto ma dongle w ręku, może więc podłączyć go do laptopa, zainstalować pyOCD (`pip install pyocd`) i jedną komendą zrzucić cały układ. Bez otwierania obudowy, bez lutowania, bez specjalnego sprzętu. To jest „skrót SWD” i dlatego niezablokowany dongle nigdy nie może opuścić fabryki.
 
-The **Secure Engine (SE)** is the only thing that can close this door. The debug lock tells the SE to keep the AHB-AP (the memory/CPU access path) disabled on every boot. What remains reachable over SWD while locked is the SE's **Debug Challenge Interface (DCI)**: a narrow mailbox that accepts only SE commands (read lock status, get challenge, device erase, signed unlock). It gives no memory access.
+**Secure Engine (SE)** to jedyny element, który może zamknąć te drzwi. Blokada debug każe SE utrzymywać AHB-AP (ścieżkę dostępu do pamięci/CPU) wyłączony przy każdym uruchomieniu. W stanie zablokowanym przez SWD dostępny pozostaje tylko **Debug Challenge Interface (DCI)** SE: wąska skrzynka pocztowa, która przyjmuje wyłącznie komendy SE (odczyt stanu blokady, pobranie challenge'u, device erase, podpisane odblokowanie). Nie daje dostępu do pamięci.
 
-> In this project the unlock does **not** go through DCI. The firmware fetches the challenge and passes the signed token to the SE over the USB serial RPC (`0x62` / `0x63`). The effect is the same: the SE verifies the token and reopens the AHB-AP until the next reset.
+> W tym projekcie odblokowanie **nie** przechodzi przez DCI. Firmware pobiera challenge i przekazuje podpisany token do SE przez szeregowe RPC po USB (`0x62` / `0x63`). Efekt jest ten sam: SE weryfikuje token i ponownie otwiera AHB-AP do najbliższego resetu.
 
-### 6.2 Reading the dongle's memory
+### 6.2 Odczyt pamięci dongla
 
-| | (a) never locked | (b) secure-debug locked | (c) locked, then unlocked until reset |
+| | (a) nigdy nie zablokowany | (b) zablokowany (secure debug lock) | (c) zablokowany, potem odblokowany do resetu |
 |---|---|---|---|
-| **USB serial (RPC)** | Only what the firmware allows: status, logs, license check. No raw memory reads. | **Same** | **Same** |
-| **SWD: flash, RAM, NVM3, registers** | **Everything**, for anyone with the USB cable | **Nothing**: the SE keeps the port closed | **Everything**, until the next reset |
-| **Keys inside the SE** (dongle identity key) | Not readable in plaintext (stored wrapped by the chip-unique PUF key) | Not readable | Not readable |
+| **Port szeregowy USB (RPC)** | Tylko to, na co pozwala firmware: status, logi, sprawdzenie licencji. Brak surowych odczytów pamięci. | **To samo** | **To samo** |
+| **SWD: flash, RAM, NVM3, rejestry** | **Wszystko**, dla każdego z kablem USB | **Nic**: SE trzyma port zamknięty | **Wszystko**, do najbliższego resetu |
+| **Klucze wewnątrz SE** (klucz tożsamości dongla) | Nieczytelne w postaci jawnej (przechowywane opakowane unikalnym dla układu kluczem PUF) | Nieczytelne | Nieczytelne |
 
-The lock does not change the USB serial channel at all. It only closes SWD.
+Blokada w ogóle nie zmienia kanału szeregowego USB. Zamyka tylko SWD.
 
-### 6.3 Flashing
+### 6.3 Flashowanie
 
-| | (a) never locked | (b) secure-debug locked | (c) unlocked until reset |
+| | (a) nigdy nie zablokowany | (b) zablokowany (secure debug lock) | (c) odblokowany do resetu |
 |---|---|---|---|
-| **Normal flash** (`flash.bat`, `set_*_mode.bat`) | Anyone; NVM3 (license, identity) is preserved | **Impossible** | Possible; works like (a) until reset |
-| **Re-provision** (`provision_dongle.py`) | Yes | Run `secure_debug_lock.py unlock` first (the preflight refuses a locked SWD port) | Yes |
-| **Device erase** | Yes | Yes, but it **wipes flash and RAM**: firmware, license, identity (the User Data page with the encrypted tamper log survives) | Yes |
-| **What survives an erase** | — | The Command Key in OTP: the chip stays bound to that key forever | Same |
+| **Zwykłe flashowanie** (`flash.bat`, `set_*_mode.bat`) | Każdy; NVM3 (licencja, tożsamość) zostaje zachowane | **Niemożliwe** | Możliwe; działa jak (a) do resetu |
+| **Ponowny provisioning** (`provision_dongle.py`) | Tak | Najpierw uruchom `secure_debug_lock.py unlock` (kontrola wstępna odrzuca zablokowany port SWD) | Tak |
+| **Device erase** | Tak | Tak, ale **kasuje flash i RAM**: firmware, licencję, tożsamość (strona User Data z zaszyfrowanym logiem tamper przetrwa) | Tak |
+| **Co przetrwa kasowanie** | — | Command Key w OTP: układ pozostaje związany z tym kluczem na zawsze | To samo |
 
-### 6.4 Attack surface for reverse engineering
+### 6.4 Powierzchnia ataku dla inżynierii wstecznej
 
-**(a) Never locked: wide open to anyone with a USB cable.**
-* **Dump the whole firmware**, including the secret Compass calculations, and disassemble it offline.
-* **Live debugging:** halt the CPU while Compass is talking to the dongle and read session keys and results from RAM; step through the license and RTC checks.
-* **Patch and reflash while keeping NVM3.** For example, flash firmware with the license check removed. It still holds the genuine Root CA-signed certificate, so Compass accepts it as authentic. This is the worst case.
-* Use the dongle as an algorithm oracle through the debugger.
+**(a) Nigdy nie zablokowany: szeroko otwarty dla każdego z kablem USB.**
+* **Zrzut całego firmware'u**, łącznie z tajnymi obliczeniami Compass, i deasemblacja offline.
+* **Debugowanie na żywo:** zatrzymanie CPU w trakcie komunikacji Compass z donglem i odczyt kluczy sesji oraz wyników z RAM; przechodzenie krok po kroku przez sprawdzanie licencji i RTC.
+* **Łatanie i ponowne flashowanie z zachowaniem NVM3.** Na przykład wgranie firmware'u z usuniętym sprawdzaniem licencji. Nadal ma oryginalny certyfikat podpisany przez Root CA, więc Compass uznaje go za autentyczny. To najgorszy scenariusz.
+* Wykorzystanie dongla jako wyroczni algorytmu przez debugger.
 
-**(b) Secure-debug locked: SWD is gone.** What is left:
-* **USB serial protocol:** fuzzing, logic bugs in RPC handlers, attacks on the ECDHE session. This is identical in all three modes and becomes the main attack surface.
-* **Device erase:** gives the attacker a blank chip. No firmware, no license, no certificate; firmware they write themselves is rejected by Compass because it has no Root CA-signed identity. Nothing useful is gained.
-* **Physical attacks:** voltage or clock glitching to skip the SE lock check (the chip has glitch and tamper detectors, and the firmware's anti-tamper logic reacts), or decapping the chip. These need expensive equipment and expertise.
-* **Stealing `debug_command_key.pem`.** This is the real weakness today: the development key is in git, so anyone with repository access can unlock every dongle locked with it. Production therefore gets a new key kept offline (section 5).
+**(b) Zablokowany (secure debug lock): SWD znika.** Co zostaje:
+* **Protokół szeregowy USB:** fuzzing, błędy logiczne w obsłudze RPC, ataki na sesję ECDHE. Jest identyczny we wszystkich trzech trybach i staje się główną powierzchnią ataku.
+* **Device erase:** daje atakującemu pusty układ. Bez firmware'u, bez licencji, bez certyfikatu; firmware napisany przez atakującego Compass odrzuci, bo nie ma tożsamości podpisanej przez Root CA. Nic przydatnego nie zyskuje.
+* **Ataki fizyczne:** glitching napięcia lub zegara, aby pominąć sprawdzenie blokady przez SE (układ ma detektory glitchy i tamper, a logika anti-tamper firmware'u na nie reaguje), albo zdjęcie obudowy z samego układu (decapping). Wymagają drogiego sprzętu i wiedzy.
+* **Kradzież `debug_command_key.pem`.** To dziś realna słabość: klucz deweloperski jest w git, więc każdy z dostępem do repozytorium może odblokować każdy dongle nim zablokowany. Produkcja dostaje więc nowy klucz przechowywany offline (sekcja 5).
 
-**(c) Locked, then unlocked until reset:** the same as (a), but only until the next power-on reset or device reset. Getting there requires a valid unlock token:
-* Each token is bound to **this chip's serial number** and to its **current SE challenge**, so it is useless on another dongle. The challenge is not rolled, so a token would keep working on the same chip; keyadmin never stores it, and it exists only in the factory, in memory, during an unlock.
-* The window exists only while the dongle is in the lab. Once it resets, it is back in mode (b).
+**(c) Zablokowany, potem odblokowany do resetu:** to samo co (a), ale tylko do najbliższego resetu po włączeniu zasilania lub resetu urządzenia. Dotarcie tu wymaga ważnego tokenu odblokowującego:
+* Każdy token jest związany z **numerem seryjnym tego układu** i jego **bieżącym challenge'em SE**, więc na innym donglu jest bezużyteczny. Challenge nie jest zmieniany, więc token działałby dalej na tym samym układzie; keyadmin nigdy go nie przechowuje, a istnieje on tylko w fabryce, w pamięci, podczas odblokowania.
+* Okno istnieje tylko wtedy, gdy dongle jest w laboratorium. Po resecie wraca do trybu (b).
 
-**Bottom line:** (a) is never acceptable for a customer, because the dongle carries its own debugger. (b) is the shipping state. (c) is a service window that only the holder of the keys can open, and it closes on reset.
+**Podsumowanie:** (a) nigdy nie jest akceptowalne dla klienta, bo dongle nosi w sobie własny debugger. (b) to stan wysyłkowy. (c) to okno serwisowe, które może otworzyć tylko posiadacz kluczy, i które zamyka się przy resecie.
 
-> **Hardware verification status (2026-10-27, dongle `0000000000000000880F62FFFE3E183B`):** lock applied and verified (`CMD_KEY:MATCH`, `SECURE_DEBUG:1`, `LOCK_APPLIED:1`); challenge-response unlock accepted by the SE; SWD reads confirmed while unlocked (vector table at `0x08000000`, Black Box at its old location `0x0817E000`, now moved to the User Data page `0x0FE00000`). A pyOCD software reset did **not** close the port again; re-locking after a pin reset (RESET button) or a power-on reset with the battery disconnected is still to be confirmed.
+> **Status weryfikacji na sprzęcie (2026-10-27, dongle `0000000000000000880F62FFFE3E183B`):** blokada założona i zweryfikowana (`CMD_KEY:MATCH`, `SECURE_DEBUG:1`, `LOCK_APPLIED:1`); odblokowanie challenge-response zaakceptowane przez SE; odczyty SWD potwierdzone w stanie odblokowanym (tablica wektorów pod `0x08000000`, Black Box w starej lokalizacji `0x0817E000`, obecnie przeniesiony na stronę User Data `0x0FE00000`). Programowy reset przez pyOCD **nie** zamknął ponownie portu; ponowne zablokowanie po resecie pinem (przycisk RESET) lub po resecie zasilania z odłączoną baterią wciąż wymaga potwierdzenia.

@@ -1,14 +1,14 @@
-﻿# Time-Based License Mechanism
+﻿# Mechanizm licencji czasowej
 
-## 1. Overview
-The time-based licensing system ensures that the application and its critical functions can only be executed if a valid license is present on the USB dongle and has not expired.
+## 1. Przegląd
+System licencji czasowej gwarantuje, że aplikację i jej krytyczne funkcje można uruchomić tylko wtedy, gdy na donglu USB znajduje się ważna licencja, która nie wygasła.
 
-## 2. Components
-* **Hardware Clock (RTC):** The EFR32MG24 lacks a battery-backed RTC. To simulate continuous time, the dongle saves an initial `boot_time` (Unix timestamp) in the secure NVM3 storage. The current time is calculated by adding the processor's uptime (ticks) to this `boot_time`.
-* **Admin API:** `AdminApi.update_current_date()` and `AdminApi.set_license_days()` (`MSG_ADMIN_DATE`, `MSG_ADMIN_LIC`) set the current time and the license duration (in days). They exist only in the factory firmware (`keyfirmware_prov.hex`); the production firmware does not contain them.
-* **Compass API:** The Python application calls check_license on startup or before critical calculations. The dongle responds with the validity status.
+## 2. Komponenty
+* **Zegar sprzętowy (RTC):** EFR32MG24 nie ma RTC z podtrzymaniem bateryjnym. Aby symulować ciągły upływ czasu, dongle zapisuje początkowy `boot_time` (Unix timestamp) w bezpiecznej pamięci NVM3. Bieżący czas oblicza się, dodając do tego `boot_time` czas pracy procesora (uptime, w tickach).
+* **Admin API:** `AdminApi.update_current_date()` i `AdminApi.set_license_days()` (`MSG_ADMIN_DATE`, `MSG_ADMIN_LIC`) ustawiają bieżący czas i długość licencji (w dniach). Istnieją wyłącznie w firmware fabrycznym (`keyfirmware_prov.hex`); firmware produkcyjny ich nie zawiera.
+* **Compass API:** Aplikacja Python wywołuje check_license przy starcie lub przed krytycznymi obliczeniami. Dongle odpowiada statusem ważności licencji.
 
-## 3. Security Measures (Anti-Tampering)
-* **Time Rollback Protection:** The firmware actively prevents time rollback attacks. If the host PC attempts to push a time synchronization that is older than the dongle's currently calculated time, the firmware rejects it and logs an attack attempt.
-* **Storage Security:** The lic_start_time and lic_days are stored in NVM3, in the Secure world (ARM TrustZone), unencrypted; the Secure Debug Lock is what prevents reading or writing them over SWD.
-* **Fail-Secure State:** If the dongle loses power, its internal clock halts. Upon reconnection, the time must be explicitly synchronized by the host (forward-sync). If synchronization is missing, all algorithm requests are denied.
+## 3. Środki bezpieczeństwa (anti-tampering)
+* **Ochrona przed cofnięciem czasu:** Firmware aktywnie zapobiega atakom polegającym na cofnięciu czasu (time rollback). Jeśli komputer hosta spróbuje przesłać synchronizację czasu wcześniejszą niż czas aktualnie wyliczony przez dongle, firmware ją odrzuca i rejestruje próbę ataku.
+* **Bezpieczeństwo przechowywania:** lic_start_time i lic_days są przechowywane w NVM3, w świecie Secure (ARM TrustZone), bez szyfrowania; przed ich odczytem lub zapisem przez SWD chroni Secure Debug Lock.
+* **Stan fail-secure (bezpieczny w razie awarii):** Gdy dongle traci zasilanie, jego wewnętrzny zegar się zatrzymuje. Po ponownym podłączeniu host musi jawnie zsynchronizować czas (forward-sync). Bez synchronizacji wszystkie żądania algorytmów są odrzucane.

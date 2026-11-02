@@ -1,98 +1,98 @@
-# Anti-Tamper Protection (EFR32MG24 / Secure Vault High)
+# Ochrona anti-tamper (EFR32MG24 / Secure Vault High)
 
-The EFR32MG24 microcontroller with Secure Vault High features a comprehensive hardware Anti-Tamper module designed to prevent both reverse engineering and logical attacks. It allows the system to rapidly detect tampering attempts and respond by triggering an interrupt, resetting the device, or completely erasing the One-Time-Programmable (OTP) memory, rendering the device inoperable (bricking).
+Mikrokontroler EFR32MG24 z Secure Vault High ma rozbudowany sprzętowy moduł anti-tamper, którego zadaniem jest utrudnienie zarówno inżynierii wstecznej, jak i ataków logicznych. Pozwala on szybko wykryć próbę ingerencji (tamper) i zareagować wyzwoleniem przerwania, resetem urządzenia albo całkowitym skasowaniem pamięci OTP (One-Time-Programmable, pamięć jednokrotnego zapisu), co trwale unieruchamia urządzenie (bricking).
 
-## What is Detected?
+## Co jest wykrywane?
 
-The Anti-Tamper module monitors several hardware and software signals. It provides fast detection of both external physical tampering and internal logical or environmental attacks:
+Moduł anti-tamper monitoruje szereg sygnałów sprzętowych i programowych. Zapewnia szybkie wykrywanie zarówno zewnętrznej, fizycznej ingerencji, jak i wewnętrznych ataków logicznych lub środowiskowych:
 
-### Internal Protections:
-1. **Voltage Glitching:** Detects sudden spikes or drops in the supply voltage (`VGLITCHFALLING`, `VGLITCHRISING`), commonly used to skip instructions or bypass security checks.
-2. **Digital Glitching (`DGLITCH`):** Detects logic-level glitches within the chip.
-3. **Temperature Extremes:** Detects forced heating or freezing of the chip used to induce faults or read SRAM contents.
-4. **Electromagnetic Pulses (EMP):** Detects intense magnetic fields or radiation often used in fault injection attacks.
-5. **Security Sub-System Tampering:** Detects logical attacks like failed authentication attempts, Secure Boot (RTSL) failures, and unauthorized debug access.
+### Zabezpieczenia wewnętrzne:
+1. **Glitching napięcia:** wykrywa nagłe skoki lub spadki napięcia zasilania (`VGLITCHFALLING`, `VGLITCHRISING`), często używane do pomijania instrukcji lub obchodzenia kontroli bezpieczeństwa.
+2. **Glitching cyfrowy (`DGLITCH`):** wykrywa zakłócenia na poziomie logiki wewnątrz układu.
+3. **Skrajne temperatury:** wykrywa wymuszone nagrzewanie lub zamrażanie układu, stosowane do wywoływania błędów lub odczytu zawartości SRAM.
+4. **Impulsy elektromagnetyczne (EMP):** wykrywa silne pola magnetyczne lub promieniowanie, często używane w atakach typu fault injection (wstrzykiwanie błędów).
+5. **Ingerencja w podsystem bezpieczeństwa:** wykrywa ataki logiczne, takie jak nieudane próby uwierzytelnienia, błędy Secure Boot (RTSL) i nieautoryzowany dostęp debug.
 
-### External Protections (Hardware Switches & Wire Loops):
-The device features up to 8 external configurable tamper sources (or handled via GPIO external interrupts with glitch filters). These are typically used to detect:
-- **Case Opening / Enclosure Tamper:** Physical opening of the device casing.
-- **Mesh/Wire Cut:** Cutting a security wire loop or breaking a microswitch circuit around the PCB.
+### Zabezpieczenia zewnętrzne (przełączniki sprzętowe i pętle przewodów):
+Urządzenie ma do 8 zewnętrznych, konfigurowalnych źródeł tamper (albo obsługiwanych przez zewnętrzne przerwania GPIO z filtrami glitchy). Zwykle służą one do wykrywania:
+- **Otwarcia obudowy / ingerencji w obudowę:** fizyczne otwarcie obudowy urządzenia.
+- **Przecięcia siatki/przewodu:** przecięcie zabezpieczającej pętli przewodu lub przerwanie obwodu mikroprzełącznika wokół PCB.
 
-> **Hardware Note (EFR32MG24 vs ETAMPDET):** The hardware peripheral `ETAMPDET` (External Tamper Detect with PRBS LFSR pseudo-random bit sequence generation) is available only on EFR32xG25, EFR32xG27, EFR32xG29, and Series 3 devices. The EFR32MG24 (Seeed XIAO MG24) does NOT feature the ETAMPDET peripheral; external physical protection is implemented via GPIO external interrupts with pull-up resistors and digital glitch filtering, routed directly to `TamperManager` (`tamper_manager_detected()`).
+> **Uwaga sprzętowa (EFR32MG24 a ETAMPDET):** Sprzętowy moduł peryferyjny `ETAMPDET` (External Tamper Detect z generowaniem pseudolosowej sekwencji bitów PRBS przez LFSR) jest dostępny tylko w EFR32xG25, EFR32xG27, EFR32xG29 i układach Series 3. EFR32MG24 (Seeed XIAO MG24) NIE ma modułu ETAMPDET; zewnętrzna ochrona fizyczna jest zrealizowana przez zewnętrzne przerwania GPIO z rezystorami pull-up i cyfrowym filtrowaniem glitchy, kierowane bezpośrednio do `TamperManager` (`tamper_manager_detected()`).
 
-## Physical Implementation Requirements
+## Wymagania dotyczące fizycznej implementacji
 
-To utilize external tamper detection on EFR32MG24:
-1. **Tamper Switch or Wire Loop:** A physical microswitch (for case opening) or a wire loop must be connected between the designated tamper GPIO pins (PC5 / PC6 on XIAO MG24) and Ground (GND).
-2. **Pull-Up & Glitch Filter:** The pins are configured in `SL_GPIO_MODE_INPUT_PULL_FILTER` mode. When the casing is closed, the circuit pulls the pin to GND (logic 0).
-3. If the loop is cut, the wire detached, or the casing opened, the internal pull-up resistor immediately raises the line to VCC (logic 1), firing an interrupt on the rising edge and notifying `TamperManager`.
+Aby korzystać z zewnętrznego wykrywania tamper na EFR32MG24:
+1. **Przełącznik tamper lub pętla przewodu:** fizyczny mikroprzełącznik (dla otwarcia obudowy) lub pętla przewodu musi być podłączona między wyznaczonymi pinami GPIO tamper (PC5 / PC6 w XIAO MG24) a masą (GND).
+2. **Pull-up i filtr glitchy:** piny są skonfigurowane w trybie `SL_GPIO_MODE_INPUT_PULL_FILTER`. Gdy obudowa jest zamknięta, obwód ściąga pin do GND (logiczne 0).
+3. Jeśli pętla zostanie przecięta, przewód odłączony lub obudowa otwarta, wewnętrzny rezystor pull-up natychmiast podciąga linię do VCC (logiczne 1), co wyzwala przerwanie na zboczu narastającym i powiadamia `TamperManager`.
 
-## Code Examples
+## Przykłady kodu
 
-There are two main configurations for anti-tamper: configuring the Secure Engine (SE) OTP to handle autonomous hardware responses, and configuring GPIO external interrupt inputs with TamperManager to detect physical casing and wire breaches.
+Są dwie główne konfiguracje anti-tamper: konfiguracja OTP w Secure Engine (SE), aby obsługiwał autonomiczne reakcje sprzętowe, oraz konfiguracja wejść zewnętrznych przerwań GPIO z TamperManager, aby wykrywać fizyczne naruszenia obudowy i przewodów.
 
-### 1. Configuring the Secure Engine (Internal Protections)
+### 1. Konfiguracja Secure Engine (zabezpieczenia wewnętrzne)
 
-The tamper responses are permanently programmed into the Secure Engine's OTP memory using `sl_se_init_otp()`. 
-**WARNING:** This action is irreversible. It configures the hardware to automatically erase its secrets when under attack.
+Reakcje na tamper są na stałe programowane w pamięci OTP Secure Engine za pomocą `sl_se_init_otp()`. 
+**OSTRZEŻENIE:** Ta operacja jest nieodwracalna. Konfiguruje sprzęt tak, by w razie ataku automatycznie kasował swoje sekrety.
 
 ```c
 #include "sl_se_manager.h"
 
-// Signal names below are the EFR32MG24 (Series 2 config 4) names from sl_se_manager_defines.h.
-// Names such as VGLITCHFALLING / DGLITCH exist only on EFR32xG21 and do not compile for MG24.
+// Poniższe nazwy sygnałów to nazwy dla EFR32MG24 (Series 2 config 4) z sl_se_manager_defines.h.
+// Nazwy takie jak VGLITCHFALLING / DGLITCH istnieją tylko w EFR32xG21 i nie kompilują się dla MG24.
 void configure_secure_engine_tamper(sl_se_command_context_t *cmd_ctx)
 {
-    sl_se_otp_init_t otp_settings_init = SL_SE_OTP_INIT_DEFAULT;  // also carries the secure boot settings!
+    sl_se_otp_init_t otp_settings_init = SL_SE_OTP_INIT_DEFAULT;  // zawiera też ustawienia secure boot!
 
-    // Glitches can have spurious activations. Instead of erasing OTP immediately,
-    // we route them to a filter. If too many glitches occur in a time window,
-    // the filter triggers the main response.
+    // Glitche mogą mieć fałszywe aktywacje. Zamiast od razu kasować OTP,
+    // kierujemy je do filtra. Jeśli w oknie czasowym wystąpi zbyt wiele glitchy,
+    // filtr wyzwala główną reakcję.
     otp_settings_init.tamper_levels[SL_SE_TAMPER_SIGNAL_FILTER_COUNTER] = SL_SE_TAMPER_LEVEL_PERMANENTLY_ERASE_OTP;
 
-    // Route glitch detectors to the filter
-    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_SUPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 18: supply glitch
-    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_EMPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 17: digital / EMP glitch
+    // Skieruj detektory glitchy do filtra
+    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_SUPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 18: glitch zasilania
+    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_EMPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 17: glitch cyfrowy / EMP
 
-    // Configure the filter: Trigger if 4 incidents occur within 1 minute
+    // Konfiguracja filtra: wyzwól, jeśli w ciągu 1 minuty wystąpią 4 incydenty
     otp_settings_init.tamper_filter_period = SL_SE_TAMPER_FILTER_PERIOD_1MIN;
     otp_settings_init.tamper_filter_threshold = SL_SE_TAMPER_FILTER_THRESHOLD_4;
 
-    // Commit the settings to OTP (ONE TIME OPERATION, secure boot settings included!)
+    // Zapisz ustawienia do OTP (OPERACJA JEDNORAZOWA, łącznie z ustawieniami secure boot!)
     sl_se_init_otp(cmd_ctx, &otp_settings_init);
 }
 ```
 
-#### 2. Configuring External Tamper Pins (EFR32MG24 GPIO & TamperManager)
+#### 2. Konfiguracja zewnętrznych pinów tamper (GPIO EFR32MG24 i TamperManager)
 
-The following code (implemented in [`tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c)) demonstrates how external physical tamper events (such as case opening or wire loop cuts on PC5 / PC6) are configured and handled on the EFR32MG24 using digital glitch filtering and interrupts:
+Poniższy kod (zaimplementowany w [`tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c)) pokazuje, jak na EFR32MG24 konfigurowane i obsługiwane są zewnętrzne, fizyczne zdarzenia tamper (np. otwarcie obudowy lub przecięcie pętli przewodu na PC5 / PC6) z użyciem cyfrowego filtrowania glitchy i przerwań:
 
 ```c
 #include "sl_gpio.h"
 #include "tamper_manager.h"
 
-// Define physical pins on Seeed XIAO MG24
+// Definicja fizycznych pinów w Seeed XIAO MG24
 #define TAMPER1_PORT  SL_GPIO_PORT_C
 #define TAMPER1_PIN   5
 
 static sl_gpio_t tamper_gpio = { .port = TAMPER1_PORT, .pin = TAMPER1_PIN };
 static int32_t int_no = -1;
 
-// Hardware GPIO Interrupt Callback (runs when circuit is broken / casing opened)
+// Callback sprzętowego przerwania GPIO (wywoływany, gdy obwód zostanie przerwany / obudowa otwarta)
 static void tamper1_callback(uint8_t pin, void *ctx)
 {
     (void)pin;
     (void)ctx;
-    // Notify central TamperManager
+    // Powiadom centralny TamperManager
     tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1, "Casing opened / Wire 1 severed");
 }
 
 void configure_external_tamper_pin(void)
 {
-    // Configure pin as input with pull-up and digital glitch filter enabled
+    // Skonfiguruj pin jako wejście z pull-upem i włączonym cyfrowym filtrem glitchy
     sl_gpio_set_pin_mode(&tamper_gpio, SL_GPIO_MODE_INPUT_PULL_FILTER, 1);
 
-    // Allocate and configure rising edge interrupt
+    // Przydziel i skonfiguruj przerwanie na zboczu narastającym
     sl_gpio_configure_external_interrupt(
         &tamper_gpio,
         &int_no,
@@ -118,7 +118,7 @@ Obecny kod w KeyFirmware wykorzystuje bezpieczną "piaskownicę" do testów otwa
 
 **Krok 1: Test Wizualny (Urządzenie zasilane, bez włączonego skryptu Python na PC)**
 * Dopóki trzymasz przycisk wciśnięty (obudowa zamknięta) - dioda nie reaguje.
-* Gdy tylko puścisz przycisk (otwarcie obudowy), wewnętrzny licznik 	amper_event_count rośnie o 1. Wbudowana dioda na płytce XIAO **zamiga szybko jeden raz**.
+* Gdy tylko puścisz przycisk (otwarcie obudowy), wewnętrzny licznik `tamper_event_count` rośnie o 1. Wbudowana dioda na płytce XIAO **zamiga szybko jeden raz**.
 * Jeśli znów wciśniesz i po chwili puścisz przycisk, układ zanotuje to jako drugi atak. Dioda zamiga **dwa razy pod rząd**. Liczba błysków LED zawsze obrazuje całkowitą sumę zarejestrowanych naruszeń.
 
 **Krok 2: Test Telemetrii (Komunikacja z Windows)**
@@ -127,160 +127,160 @@ Obecny kod w KeyFirmware wykorzystuje bezpieczną "piaskownicę" do testów otwa
 * W trakcie autoryzacji (krok 1.7), Python odpyta dongle'a o kondycję sprzętową (MSG_SYS_HEALTH).
 * Ponieważ dongle zanotował atak, wyśle raport do Windowsa.
 * W konsoli Windowsa natychmiast po połączeniu zobaczysz ogromny alert bezpieczeństwa:
-`	ext
+```text
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!! CRITICAL SECURITY ALERT: PHYSICAL TAMPER DETECTED !!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-`
+```
 Oraz bieżący odczyt parametrów środowiskowych wyciągnięty ze sprzętu, np.:
 TamperEvents: 2, Temp: 24.5C
 
 > **Ważna uwaga fizyczna:** Obecna konfiguracja "wersji testowej" przechowuje wynik w szybkiej pamięci RAM, by uchronić żywotność Flasha i nie uszkodzić Secure Engine (OTP). To oznacza, że jeżeli **całkowicie odłączysz zasilanie** (np. wyjmiesz układ z USB w celu przeniesienia na inne biurko), to log w RAM zniknie i po podłączeniu licznik znowu będzie wynosił zero. Do testowania samej mechaniki obudowy wystarczy zasilanie z powerbanka i obserwacja diody LED!
 
-## TamperManager in KeyFirmware: detection, logging and wipe (as implemented)
+## TamperManager w KeyFirmware: wykrywanie, logowanie i kasowanie (stan implementacji)
 
-Code: `KeyFirmware/src/core/tamper_manager.c` (Secure world), entry points through NSC gates in `src/secure/nsc_interface.c`.
+Kod: `KeyFirmware/src/core/tamper_manager.c` (świat Secure), punkty wejścia przez bramki NSC w `src/secure/nsc_interface.c`.
 
-### Central mechanism
+### Mechanizm centralny
 
-Every detector ends in one function, `tamper_manager_detected(type, metadata)`, which runs in the **Secure world**. It increments a per-type counter and, when the counter reaches the type's threshold, calls `tamper_manager_trigger_wipe()` once per boot.
+Każdy detektor kończy się w jednej funkcji, `tamper_manager_detected(type, metadata)`, która działa w **świecie Secure**. Zwiększa ona licznik danego typu, a gdy licznik osiągnie próg dla tego typu, wywołuje `tamper_manager_trigger_wipe()` (raz na uruchomienie).
 
-| Type | Source (who calls it) | Threshold |
+| Typ | Źródło (kto wywołuje) | Próg |
 |---|---|---|
-| `PHYSICAL_PIN1` / `PIN2` | PC5 / PC6 GPIO interrupts, `tamper_simulation.c` (Non-Secure) → `nsc_tamper_manager_detected` | 3 / 3 |
-| `LOGICAL_VRX_SHORT` | Truncated VRX packet, `prod_router.c` (Non-Secure) | 5 |
+| `PHYSICAL_PIN1` / `PIN2` | Przerwania GPIO PC5 / PC6, `tamper_simulation.c` (Non-Secure) → `nsc_tamper_manager_detected` | 3 / 3 |
+| `LOGICAL_VRX_SHORT` | Obcięty pakiet VRX, `prod_router.c` (Non-Secure) | 5 |
 | `LOGICAL_VRX_INVALID` / `MISMATCH` / `NO_SESSION` | `security_users.c` (Secure) | 5 / 3 / 5 |
-| `VOLTAGE_GLITCH` | AVDD / IOVDD0 brown-out flags in `EMU->IF`, polled by `tamper_manager_process()` | 2 |
-| `DIGITAL_GLITCH` | HFXO error flags in `HFXO0->IF`, same poll | 2 |
-| `TEMP_EXTREME` | `EMU_TemperatureGet()` every 5 s, outside -10..+70 °C | 3 |
-| `EMP` | `tamper_manager_report_emp()` exists but **nothing calls it** (no EMP sensor) | 1 |
+| `VOLTAGE_GLITCH` | Flagi brown-out (spadku napięcia) AVDD / IOVDD0 w `EMU->IF`, odpytywane przez `tamper_manager_process()` | 2 |
+| `DIGITAL_GLITCH` | Flagi błędów HFXO w `HFXO0->IF`, to samo odpytywanie | 2 |
+| `TEMP_EXTREME` | `EMU_TemperatureGet()` co 5 s, poza zakresem -10..+70 °C | 3 |
+| `EMP` | `tamper_manager_report_emp()` istnieje, ale **nic jej nie wywołuje** (brak czujnika EMP) | 1 |
 
-`tamper_manager_process()` is called from the Non-Secure main loop (`app.c`) through `nsc_tamper_manager_process()`. The Secure Engine's own hardware tamper responses (`sl_se_otp_init_t.tamper_levels`) are **not** configured; they are only described in comments.
+`tamper_manager_process()` jest wywoływana z pętli głównej świata Non-Secure (`app.c`) przez `nsc_tamper_manager_process()`. Własne sprzętowe reakcje tamper Secure Engine (`sl_se_otp_init_t.tamper_levels`) **nie** są skonfigurowane; są tylko opisane w komentarzach.
 
-Counters are kept in Secure RAM only. A reset or power cycle sets them back to zero, so every threshold means "N events within one power cycle".
+Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie zasilania zeruje je, więc każdy próg oznacza „N zdarzeń w obrębie jednego cyklu zasilania”.
 
-### Logging
+### Logowanie
 
-* **Nothing the Secure world logs reaches USB.** In the Secure image `send_log()` is a stub (`sec_main.c`) and `tamper_manager_init(NULL)` leaves `active_tf` empty. The per-event `SECURITY ALERT` line and the final `CRITICAL: SELF-DESTRUCT` line are built but dropped.
-* What the host does see:
-  * PC5 / PC6 events: the Non-Secure `tamper_simulation.c` sends its own `SECURITY ALERT` log, and the LED blinks.
-  * VRX events: only the error reply to the failed call (`ERR: Tamper attempt detected`).
+* **Nic, co loguje świat Secure, nie trafia na USB.** W obrazie Secure `send_log()` jest zaślepką (`sec_main.c`), a `tamper_manager_init(NULL)` pozostawia `active_tf` puste. Linia `SECURITY ALERT` dla każdego zdarzenia i końcowa linia `CRITICAL: SELF-DESTRUCT` są budowane, ale odrzucane.
+* Co host faktycznie widzi:
+  * Zdarzenia PC5 / PC6: `tamper_simulation.c` w świecie Non-Secure wysyła własny log `SECURITY ALERT`, a dioda LED miga.
+  * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`).
   * `MSG_SYS_HEALTH` (`0x10`): `TamperEvents:<total>, Temp:<t>, TamperLog:<entries in the persistent log>`.
-* **Persistent event log**: every tamper event is written, AES-encrypted, to the **User Data page `0x0FE00000`**, which survives the wipe. The entry of the event that reached its threshold carries the WIPE flag. See [Persistent tamper log](#persistent-tamper-log-user-data-page). The old Black Box record (192 B, written once at the threshold) was removed: the log already holds the trigger, its time and temperature.
+* **Trwały log zdarzeń**: każde zdarzenie tamper jest zapisywane, zaszyfrowane AES, na **stronie User Data `0x0FE00000`**, która przetrwa kasowanie. Wpis zdarzenia, które osiągnęło próg, ma flagę WIPE. Zob. [Trwały log tamper](#trwały-log-tamper-strona-user-data). Stary rekord Black Box (192 B, zapisywany jednorazowo po osiągnięciu progu) został usunięty: log zawiera już zdarzenie wyzwalające, jego czas i temperaturę.
 
-### Response when a threshold is reached
+### Reakcja po osiągnięciu progu
 
-1. The triggering event is already in the persistent log with the WIPE flag.
-2. The response depends on the build switch `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT`:
+1. Zdarzenie wyzwalające jest już w trwałym logu z flagą WIPE.
+2. Reakcja zależy od przełącznika kompilacji `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT`:
 
-| | Dev mode (default, `0`) | Live wipe (`1`) |
+| | Tryb deweloperski (domyślny, `0`) | Kasowanie na żywo (`1`) |
 |---|---|---|
-| NVM3 (license, certificate, max users, identity key) | Deleted (`security_nvm_wipe_all`) | Erased with the rest of the flash |
-| Secure + Non-Secure code | Kept: the dongle keeps running | **Erased**: `sl_se_erase_device()`, a Secure Engine mass erase that clears and verifies all main flash **and RAM** |
-| Debug lock | Unchanged | Reset to unlocked by the SE: the empty chip can be reflashed and the User Data page read without an unlock token (the log is encrypted) |
-| If the SE refuses (device erase disabled) | n/a | Fallback: NVM3 objects are deleted, then `tamper_manager_self_destruct_ram()` erases main flash page by page from RAM, then halts |
+| NVM3 (licencja, certyfikat, maks. liczba użytkowników, klucz tożsamości) | Usuwane (`security_nvm_wipe_all`) | Kasowane razem z resztą flasha |
+| Kod Secure + Non-Secure | Zachowany: dongle działa dalej | **Kasowany**: `sl_se_erase_device()`, masowe kasowanie przez Secure Engine, które czyści i weryfikuje całą główną pamięć flash **oraz RAM** |
+| Blokada debug | Bez zmian | Resetowana do stanu odblokowanego przez SE: pusty układ można ponownie sflashować, a stronę User Data odczytać bez tokenu odblokowującego (log jest zaszyfrowany) |
+| Jeśli SE odmówi (device erase wyłączony) | nie dotyczy | Rozwiązanie awaryjne: obiekty NVM3 są usuwane, potem `tamper_manager_self_destruct_ram()` kasuje główną pamięć flash strona po stronie, działając z RAM, a następnie zatrzymuje układ |
 
-> **Even dev mode is destructive for the customer's data:** 3 VRX token mismatches within one power cycle already delete the license and the identity key from NVM3.
+> **Nawet tryb deweloperski niszczy dane klienta:** 3 niezgodności tokenu VRX w jednym cyklu zasilania wystarczą, by usunąć licencję i klucz tożsamości z NVM3.
 
-The device erase stays available because `sec_debug_lock.c` never calls `sl_se_disable_device_erase()`. If that is ever called, only the RAM fallback is left. Whether the Non-Secure MSC can erase Secure-world flash pages has not been verified, so the fallback may leave the Secure code in place.
+Device erase pozostaje dostępny, ponieważ `sec_debug_lock.c` nigdy nie wywołuje `sl_se_disable_device_erase()`. Jeśli kiedykolwiek zostanie wywołana, zostanie tylko awaryjne kasowanie z RAM. Nie sprawdzono, czy MSC (kontroler pamięci flash) świata Non-Secure może kasować strony flasha świata Secure, więc rozwiązanie awaryjne może pozostawić kod Secure nienaruszony.
 
-### Enabling the live wipe
+### Włączanie kasowania na żywo
 
 ```bat
 set TAMPER_LIVE_WIPE=ON
 flashbat\compile.bat
 ```
 
-`compile.bat` passes `-D KEYFIRMWARE_TAMPER_LIVE_WIPE=ON|OFF` on every configure, so the setting never sticks in the CMake cache. CMake prints a warning when it is ON. Any build without the variable is a safe dev-mode build.
+`compile.bat` przekazuje `-D KEYFIRMWARE_TAMPER_LIVE_WIPE=ON|OFF` przy każdej konfiguracji, więc ustawienie nigdy nie zostaje w cache CMake. Gdy jest włączone (ON), CMake wypisuje ostrzeżenie. Każda kompilacja bez tej zmiennej to bezpieczna kompilacja w trybie deweloperskim.
 
-**Before shipping with live wipe ON, review the thresholds.** Software-reachable events (the VRX types) and environmental ones (brown-out, HFXO, temperature) can then destroy a customer's dongle. A client bug that sends 3 bad VRX tokens in one session would do it.
+**Przed wysyłką z włączonym kasowaniem na żywo przejrzyj progi.** Zdarzenia osiągalne programowo (typy VRX) i środowiskowe (brown-out, HFXO, temperatura) mogą wtedy zniszczyć dongle klienta. Wystarczyłby błąd klienta, który w jednej sesji wyśle 3 błędne tokeny VRX.
 
-**Hardware test (sacrificial dongle):**
-1. Flash a live-wipe build.
-2. Toggle PC5 to GND three times.
-3. The dongle disappears from USB. Its flash reads back as `0xFF` and `read_tamper_log.py` shows the PIN1 events, the last one with `-> WIPE`.
+**Test sprzętowy (dongle do poświęcenia):**
+1. Wgraj kompilację z kasowaniem na żywo.
+2. Trzykrotnie zewrzyj PC5 do GND.
+3. Dongle znika z USB. Jego flash odczytuje się jako `0xFF`, a `read_tamper_log.py` pokazuje zdarzenia PIN1, ostatnie z `-> WIPE`.
 
-This path has not been run on hardware yet.
+Ta ścieżka nie była jeszcze uruchamiana na sprzęcie.
 
-## Anti-tamper mechanisms: status on the dongle
+## Mechanizmy anti-tamper: stan na donglu
 
-Checked against the Simplicity SDK 2026.6.1 headers (`sl_se_manager_defines.h`, `efr32mg24b220f1536im48.h`) and the Silicon Labs Secure Vault tamper documentation (AN1247, Appendix C "Other Series 2 HSE-SVH devices"). The XIAO MG24 chip is an **EFR32MG24B220F1536IM48**, Secure Vault **High** (`_SILICON_LABS_SECURITY_FEATURE_VAULT`), Series 2 config 4, so the full SE tamper module is present. The XIAO board itself has **no** tamper hardware: switches, meshes and potting are ours to add.
+Sprawdzone względem nagłówków Simplicity SDK 2026.6.1 (`sl_se_manager_defines.h`, `efr32mg24b220f1536im48.h`) i dokumentacji tamper Secure Vault firmy Silicon Labs (AN1247, Dodatek C „Other Series 2 HSE-SVH devices”). Układ w XIAO MG24 to **EFR32MG24B220F1536IM48**, Secure Vault **High** (`_SILICON_LABS_SECURITY_FEATURE_VAULT`), Series 2 config 4, więc pełny moduł tamper SE jest obecny. Sama płytka XIAO **nie** ma żadnego sprzętu tamper: przełączniki, siatki i zalewanie (potting) musimy dodać sami.
 
-**Key constraint:** all Secure Engine responses are written by `sl_se_init_otp()` into SE OTP **once, together with the secure boot settings**, and can never be changed. If we burn a tamper configuration with secure boot off, secure boot can never be turned on for that chip. Both have to be decided and provisioned in one factory step.
+**Kluczowe ograniczenie:** wszystkie reakcje Secure Engine są zapisywane przez `sl_se_init_otp()` do OTP SE **jednorazowo, razem z ustawieniami secure boot**, i nigdy nie można ich zmienić. Jeśli zapiszemy konfigurację tamper z wyłączonym secure boot, secure boot nigdy nie będzie mógł zostać włączony na tym układzie. Obie rzeczy trzeba zdecydować i zaprovisionować w jednym kroku fabrycznym.
 
-Legend: **Active** = works on dongles today. **Code only** = implemented, depends on build flags or wiring. **Possible** = the hardware supports it, nothing done yet. **N/A** = not available on this chip.
+Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowane, zależy od flag kompilacji lub okablowania. **Możliwe** = sprzęt to obsługuje, nic jeszcze nie zrobiono. **N/A** = niedostępne na tym układzie.
 
-### Secure Engine hardware tamper sources (EFR32MG24, numbering from the SDK)
+### Sprzętowe źródła tamper Secure Engine (EFR32MG24, numeracja z SDK)
 
-| SE source | What it detects | Default response (no OTP config) | Status | What enabling takes |
+| Źródło SE | Co wykrywa | Domyślna reakcja (bez konfiguracji OTP) | Status | Co jest potrzebne do włączenia |
 |---|---|---|---|---|
-| 2, 4, 5, 7, 8, 12, 14, 16, 19 (SE watchdog, SE RAM ECC2, SE hard fault, SE assertion, SE firmware secure boot, OTP read, self test, secure lock, SE ICACHE) | Faults inside the Secure Engine itself | 4 = Reset | **Active** (built in, cannot be lowered) | Nothing. Since this change a reset caused by any SE tamper source is written to the persistent log at the next boot (`EMU_RSTCAUSE_SETAMPER`). |
-| 21 BOD | Brown-out of the supply | 4 = Reset | **Active** (reset only) | Nothing. Same reset-cause logging as above. |
-| 17 Digital glitch (`SL_SE_TAMPER_ATAMPDET_EMPGD`, "EMP glitch detector") | Fault injection by EM pulse / clock / logic glitch. **This is the only real EMP sensor on the chip.** | 0 = Ignore | **Possible**, not configured. Our `TAMPER_TYPE_EMP` has no source. | OTP level 1 (interrupt) to log it through `SETAMPERHOST_IRQHandler`, or 2 (filter) / 4 (reset). By default it runs only while the SE executes a command; staying armed needs the "digital glitch always on" OTP flag or `sl_se_enter_active_mode()` (higher current). |
-| 18 Voltage glitch (`SL_SE_TAMPER_ATAMPDET_SUPGD`) | Fast supply glitches (fault injection) | 0 = Ignore | **Possible**, not configured | OTP level 1 / 2 / 4. |
-| 22 Temperature sensor | Die temperature within 5 °C of the device limits (MG24: -40..+125 °C) | 0 = Ignore | **Possible**, not configured | OTP level 1 / 2 / 4. Much saner limits than our software -10..+70 °C. |
-| 23 / 24 DPLL lock fail low / high | Clock manipulation through the DPLL | 0 = Ignore | **Possible**, little value (our firmware does not rely on the DPLL) | OTP level. |
-| 25-31 PRS0-PRS6 | Any on-chip signal routed through PRS, e.g. the **PC5 / PC6 tamper pins** | 0 = Ignore | **Possible**, not configured | Route the GPIO through PRS to the SE tamper consumer + OTP level 4 (reset) or 7. The SE then reacts even if the CPU firmware is compromised. |
-| ETAMPDET (external tamper detect with LFSR mesh) | Active mesh with pseudo-random pattern | n/a | **N/A**: only on Series 2 config 5 / 9 (xG25, xG29...) and Series 3 | Use PC5 / PC6 (+ PRS) instead. |
-| 10 / 11 Mailbox / DCI authorization | Wrong debug-unlock tokens, attempts to export non-exportable keys | 0 = Ignore | **Possible**, not configured | OTP level 2 (filter) would slow down brute force against the Secure Debug unlock. |
-| 15 TRNG monitor | Lack of entropy (TRNG attacked or broken) | 0 = Ignore | **Possible**, not configured | OTP level 1 or 4. |
-| 9 User secure boot | Our firmware signature failed | 0 = Ignore | **N/A until secure boot is on** | Secure boot (RTSL) is not enabled (`compass_security_mechanisms.md` §10). |
-| Response level 7 "Erase OTP" | Bricks the chip permanently (OTP keys gone, part never boots again) | n/a | Not used | Only for sources with zero false positives. Not recommended for us. |
+| 2, 4, 5, 7, 8, 12, 14, 16, 19 (watchdog SE, ECC2 RAM SE, hard fault SE, asercja SE, secure boot firmware'u SE, odczyt OTP, autotest, secure lock, ICACHE SE) | Błędy wewnątrz samego Secure Engine | 4 = Reset | **Aktywne** (wbudowane, nie można obniżyć) | Nic. Od tej zmiany reset spowodowany przez dowolne źródło tamper SE jest zapisywany do trwałego logu przy następnym uruchomieniu (`EMU_RSTCAUSE_SETAMPER`). |
+| 21 BOD | Brown-out (spadek) napięcia zasilania | 4 = Reset | **Aktywne** (tylko reset) | Nic. To samo logowanie przyczyny resetu co wyżej. |
+| 17 Glitch cyfrowy (`SL_SE_TAMPER_ATAMPDET_EMPGD`, „EMP glitch detector”) | Fault injection impulsem EM / glitchem zegara / logiki. **To jedyny prawdziwy czujnik EMP w układzie.** | 0 = Ignore | **Możliwe**, nieskonfigurowane. Nasz `TAMPER_TYPE_EMP` nie ma źródła. | Poziom OTP 1 (przerwanie), aby logować przez `SETAMPERHOST_IRQHandler`, albo 2 (filtr) / 4 (reset). Domyślnie działa tylko wtedy, gdy SE wykonuje komendę; stałe uzbrojenie wymaga flagi OTP „digital glitch always on” lub `sl_se_enter_active_mode()` (większy pobór prądu). |
+| 18 Glitch napięcia (`SL_SE_TAMPER_ATAMPDET_SUPGD`) | Szybkie zakłócenia zasilania (fault injection) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 / 2 / 4. |
+| 22 Czujnik temperatury | Temperatura struktury układu w granicach 5 °C od limitów urządzenia (MG24: -40..+125 °C) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 / 2 / 4. Dużo rozsądniejsze limity niż nasze programowe -10..+70 °C. |
+| 23 / 24 DPLL lock fail low / high | Manipulacja zegarem przez DPLL | 0 = Ignore | **Możliwe**, mała wartość (nasz firmware nie polega na DPLL) | Poziom OTP. |
+| 25-31 PRS0-PRS6 | Dowolny sygnał wewnątrz układu przekierowany przez PRS, np. **piny tamper PC5 / PC6** | 0 = Ignore | **Możliwe**, nieskonfigurowane | Przekierować GPIO przez PRS do odbiornika tamper SE + poziom OTP 4 (reset) lub 7. SE reaguje wtedy nawet przy skompromitowanym firmware CPU. |
+| ETAMPDET (zewnętrzne wykrywanie tamper z siatką LFSR) | Aktywna siatka z pseudolosowym wzorcem | nie dotyczy | **N/A**: tylko w Series 2 config 5 / 9 (xG25, xG29...) i Series 3 | Zamiast tego użyć PC5 / PC6 (+ PRS). |
+| 10 / 11 Autoryzacja Mailbox / DCI | Błędne tokeny debug-unlock, próby eksportu nieeksportowalnych kluczy | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 2 (filtr) spowolniłby brute force na odblokowanie Secure Debug. |
+| 15 Monitor TRNG | Brak entropii (TRNG zaatakowany lub uszkodzony) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 lub 4. |
+| 9 User secure boot | Niepoprawny podpis naszego firmware'u | 0 = Ignore | **N/A do czasu włączenia secure boot** | Secure boot (RTSL) nie jest włączony (`compass_security_mechanisms.md` §10). |
+| Poziom reakcji 7 „Erase OTP” | Trwale brickuje układ (klucze OTP znikają, układ już nigdy się nie uruchomi) | nie dotyczy | Nieużywany | Tylko dla źródeł z zerowym odsetkiem fałszywych alarmów. Niezalecany dla nas. |
 
-### Chip features outside the SE tamper module
+### Funkcje układu poza modułem tamper SE
 
-| Mechanism | Status | Notes |
+| Mechanizm | Status | Uwagi |
 |---|---|---|
-| Secure Debug Lock (SWD closed, token-based unlock) | **Active** when keyadmin locks the dongle (`sec_debug_lock.c`) | Device Erase stays enabled (we never call `sl_se_disable_device_erase()`). |
-| Secure boot (RTSL) | **Possible**, not enabled | Must be decided together with the SE tamper OTP (one call). |
-| TrustZone split (Secure / Non-Secure) | **Active** | Tamper logic and secrets live in the Secure world. |
-| SE device erase as the wipe | **Code only** (`TAMPER_LIVE_WIPE=ON`), default OFF | Untested on hardware. |
+| Secure Debug Lock (SWD zamknięte, odblokowanie tokenem) | **Aktywne**, gdy keyadmin zablokuje dongle (`sec_debug_lock.c`) | Device Erase pozostaje włączony (nigdy nie wywołujemy `sl_se_disable_device_erase()`). |
+| Secure boot (RTSL) | **Możliwe**, niewłączone | Trzeba zdecydować razem z OTP tamper SE (jedno wywołanie). |
+| Podział TrustZone (Secure / Non-Secure) | **Aktywne** | Logika tamper i sekrety znajdują się w świecie Secure. |
+| Device erase SE jako kasowanie | **Tylko kod** (`TAMPER_LIVE_WIPE=ON`), domyślnie OFF | Nietestowane na sprzęcie. |
 
-### Our software detectors (`tamper_manager.c`)
+### Nasze detektory programowe (`tamper_manager.c`)
 
-| Detector | Status | Notes |
+| Detektor | Status | Uwagi |
 |---|---|---|
-| PC5 / PC6 GPIO interrupts (enclosure switch, wire mesh) | **Code only** | Needs a switch or mesh wired from PC5 / PC6 to GND. Without it the pull-up keeps the pins high and nothing fires. Threshold 3. |
-| VRX checks (short / invalid / mismatch / no session) | **Active** | Thresholds 5 / 5 / 3 / 5. Can also be triggered by a client bug. |
-| EMU brown-out flags (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Active** | Threshold 2. `tamper_manager_init()` does not clear stale flags, so a flag left from power-up or a USB plug-in may count as an event (not verified on hardware). |
-| HFXO error flags (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Active** | Threshold 2. A weak crystal start-up also sets these flags. |
-| `EMU_TemperatureGet()` outside -10..+70 °C -> `TEMP_EXTREME` | **Active** | Threshold 3, polled every 5 s. Much stricter than the chip's -40..+125 °C rating; a dongle in a hot car or a cold courier van can trip it. |
-| `tamper_manager_report_voltage_glitch()` (battery monitor) | **API only** | Nothing calls it. |
-| `tamper_manager_report_emp()` | **API only** | Nothing calls it. The real EMP sensor is SE source 17 above. |
-| Encrypted persistent event log in the User Data page | **Active** | See below. |
+| Przerwania GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów) | **Tylko kod** | Wymaga przełącznika lub siatki podłączonych od PC5 / PC6 do GND. Bez tego pull-up trzyma piny w stanie wysokim i nic się nie wyzwala. Próg 3. |
+| Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 5 / 5 / 3 / 5. Może je też wyzwolić błąd klienta. |
+| Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne** | Próg 2. `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać policzona jako zdarzenie (niezweryfikowane na sprzęcie). |
+| Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne** | Próg 2. Słaby start kwarcu też ustawia te flagi. |
+| `EMU_TemperatureGet()` poza -10..+70 °C -> `TEMP_EXTREME` | **Aktywne** | Próg 3, odpytywanie co 5 s. Dużo ostrzejsze niż specyfikacja układu -40..+125 °C; dongle w nagrzanym samochodzie lub w zimnym aucie kuriera może go wyzwolić. |
+| `tamper_manager_report_voltage_glitch()` (monitor baterii) | **Tylko API** | Nic jej nie wywołuje. |
+| `tamper_manager_report_emp()` | **Tylko API** | Nic jej nie wywołuje. Prawdziwy czujnik EMP to źródło SE 17 powyżej. |
+| Szyfrowany trwały log zdarzeń na stronie User Data | **Aktywne** | Zob. niżej. |
 
-## Persistent tamper log (User Data page)
+## Trwały log tamper (strona User Data)
 
-The User Data page (`0x0FE00000`, **1 KB**, the only flash outside main flash on Series 2) is not erased by the SE device erase, a mass erase, flashing, or a debug unlock. The whole page holds the event log: **64 entries x 16 B** (`tamper_log_entry_t`), a blank slot is all `0xFF`.
+Strona User Data (`0x0FE00000`, **1 KB**, jedyny obszar flash poza główną pamięcią flash w Series 2) nie jest kasowana przez device erase SE, mass erase, flashowanie ani odblokowanie debug. Cała strona mieści log zdarzeń: **64 wpisy x 16 B** (`tamper_log_entry_t`), pusty slot to same `0xFF`.
 
-**One log entry (16 B):** event type (or `0xF0` = boot after a Secure Engine tamper reset), the per-type count in this power cycle, a "this event triggered the wipe" flag, RTC timestamp, uptime in seconds, temperature, CRC-16. The free-text metadata is not stored (it would cost 4-8x the space).
+**Jeden wpis logu (16 B):** typ zdarzenia (lub `0xF0` = uruchomienie po resecie tamper Secure Engine), licznik danego typu w tym cyklu zasilania, flaga „to zdarzenie wyzwoliło kasowanie”, timestamp RTC, uptime w sekundach, temperatura, CRC-16. Dowolne metadane tekstowe nie są zapisywane (zajmowałyby 4-8x więcej miejsca).
 
-* **Encryption:** each entry is one AES-128 block, encrypted with the **Tamper Log Key** by the Secure Engine (`sl_se_aes_crypt_ecb`) before it is written. The key is compiled into the Secure image (`KeyFirmware/src/core/tamper_log_key.h`), so the wipe erases the firmware copy. The factory copy is `KeySec/keyadmin/keys/tamper_log_key.bin`. Without it a dump of a wiped dongle shows only ciphertext. Every entry differs (RTC, uptime, count), so ECB on single blocks leaks nothing useful; an attacker sees only how many slots are used. If the SE refuses to encrypt, the entry is skipped rather than written in plaintext.
-* **Key management:** `python keyadmin/scripts/generate_tamper_log_key.py` creates the key once and writes the header; `--header-only` regenerates the header from the existing key. Do not create a new key once dongles are in the field: their logs could no longer be read. Rebuild the firmware after generating.
-* **Capacity:** 64 events. When the log is full, the oldest 32 entries are dropped and the newest 32 kept (one page erase). The newest events are therefore always there.
-* **Wear:** entries are written into blank slots without erasing; an erase happens only once per 32 events. With the usual 10,000 flash erase cycles that is about 320,000 events per dongle.
-* **Power loss:** a write cut halfway fails the CRC after decryption and is shown as `[CORRUPT or wrong key]`. A power cut during the page rewrite (log full) can lose the log: a window of a few milliseconds.
-* **What is not logged:** the Secure Engine's own tamper events, except the resets they cause (no OTP configuration yet), and anything before this firmware version.
+* **Szyfrowanie:** każdy wpis to jeden blok AES-128, szyfrowany przez Secure Engine (`sl_se_aes_crypt_ecb`) kluczem **Tamper Log Key** przed zapisem. Klucz jest wkompilowany w obraz Secure (`KeyFirmware/src/core/tamper_log_key.h`), więc kasowanie usuwa kopię w firmware. Kopia fabryczna to `KeySec/keyadmin/keys/tamper_log_key.bin`. Bez niej zrzut skasowanego dongla pokazuje tylko szyfrogram. Każdy wpis jest inny (RTC, uptime, licznik), więc ECB na pojedynczych blokach nie zdradza niczego użytecznego; atakujący widzi tylko, ile slotów jest zajętych. Jeśli SE odmówi szyfrowania, wpis jest pomijany, a nie zapisywany jawnym tekstem.
+* **Zarządzanie kluczem:** `python keyadmin/scripts/generate_tamper_log_key.py` tworzy klucz jednorazowo i zapisuje nagłówek; `--header-only` generuje ponownie nagłówek z istniejącego klucza. Nie twórz nowego klucza, gdy dongle są już u klientów: ich logów nie dałoby się wtedy odczytać. Po wygenerowaniu przebuduj firmware.
+* **Pojemność:** 64 zdarzenia. Gdy log jest pełny, 32 najstarsze wpisy są odrzucane, a 32 najnowsze zachowywane (jedno kasowanie strony). Najnowsze zdarzenia są więc zawsze dostępne.
+* **Zużycie:** wpisy są zapisywane do pustych slotów bez kasowania; kasowanie następuje tylko raz na 32 zdarzenia. Przy typowych 10 000 cyklach kasowania flasha daje to około 320 000 zdarzeń na dongle.
+* **Utrata zasilania:** zapis przerwany w połowie nie przechodzi CRC po odszyfrowaniu i jest pokazywany jako `[CORRUPT or wrong key]`. Zanik zasilania podczas przepisywania strony (log pełny) może spowodować utratę logu: okno trwa kilka milisekund.
+* **Czego się nie loguje:** własnych zdarzeń tamper Secure Engine, poza resetami, które one powodują (brak jeszcze konfiguracji OTP), oraz niczego sprzed tej wersji firmware'u.
 
-### How the factory reads it
+### Jak fabryka go odczytuje
 
-| Dongle state | How to read |
+| Stan dongla | Jak odczytać |
 |---|---|
-| Wiped by the live wipe (SE device erase succeeded) | The erase also removed the debug lock and the dongle has no firmware (no USB). Connect SWD and run `python keyadmin/scripts/read_tamper_log.py`. It dumps 1 KB with pyOCD, decrypts it with `keyadmin/keys/tamper_log_key.bin` (or `--key FILE`) and prints the log. |
-| Still running (dev mode, or locked but not wiped) | `secure_debug_lock.py unlock` or admin menu unlock: after the token unlock keyadmin dumps and decodes the page automatically (`userdata_dump.bin` in the dongle's folder). |
-| An earlier dump file | `python keyadmin/scripts/read_tamper_log.py --file <dump.bin>` |
+| Skasowany przez kasowanie na żywo (device erase SE się powiódł) | Kasowanie usunęło też blokadę debug, a dongle nie ma firmware'u (brak USB). Podłącz SWD i uruchom `python keyadmin/scripts/read_tamper_log.py`. Skrypt zrzuca 1 KB przez pyOCD, odszyfrowuje go kluczem `keyadmin/keys/tamper_log_key.bin` (lub `--key FILE`) i wypisuje log. |
+| Nadal działa (tryb deweloperski albo zablokowany, ale nieskasowany) | `secure_debug_lock.py unlock` lub odblokowanie z menu administracyjnego: po odblokowaniu tokenem keyadmin automatycznie zrzuca i dekoduje stronę (`userdata_dump.bin` w folderze dongla). |
+| Wcześniejszy plik zrzutu | `python keyadmin/scripts/read_tamper_log.py --file <dump.bin>` |
 
-After reading, before the dongle goes back into service, erase the page, because reflashing keeps it: `commander device pageerase --region @userdata` (not yet run on our dongles).
+Po odczycie, zanim dongle wróci do użytku, skasuj stronę, bo ponowne flashowanie ją zachowuje: `commander device pageerase --region @userdata` (jeszcze nie uruchamiane na naszych donglach).
 
-### Debug lock after a wipe
+### Blokada debug po kasowaniu
 
-`sl_se_erase_device()` is the SE "Erase Device" command. On Series 2 it always leaves the chip **unlocked** after the next reset. This is how standard and secure debug lock work while Device Erase is enabled, and we cannot change it. The factory can lock the dongle again after reflashing (keyadmin `lock`; the command key in OTP stays).
+`sl_se_erase_device()` to komenda SE „Erase Device”. W Series 2 zawsze pozostawia układ **odblokowany** po następnym resecie. Tak działają standardowa i bezpieczna blokada debug, dopóki Device Erase jest włączony, i nie możemy tego zmienić. Fabryka może ponownie zablokować dongle po ponownym sflashowaniu (keyadmin `lock`; command key w OTP pozostaje).
 
-If a wiped dongle must stay locked, the alternative is to disable Device Erase (`sl_se_disable_device_erase()`, irreversible) and rely on the page-by-page RAM wipe:
+Jeśli skasowany dongle musi pozostać zablokowany, alternatywą jest wyłączenie Device Erase (`sl_se_disable_device_erase()`, nieodwracalne) i poleganie na kasowaniu strona po stronie z RAM:
 
-* The lock then stays on.
-* Only the factory can open the dongle, with the secure debug token, to read the log and reflash.
-* The cost: a lost command key means the dongle can never be opened again.
-* It is not verified that the RAM wipe can erase the Secure-world pages.
+* Blokada pozostaje wtedy włączona.
+* Tylko fabryka może otworzyć dongle tokenem secure debug, by odczytać log i ponownie sflashować.
+* Koszt: utracony command key oznacza, że dongla nie da się już nigdy otworzyć.
+* Nie zweryfikowano, czy kasowanie z RAM potrafi skasować strony świata Secure.
 
-Hardware tests are needed before choosing this.
+Przed wyborem tej opcji potrzebne są testy sprzętowe.

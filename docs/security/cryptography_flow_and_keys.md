@@ -1,28 +1,28 @@
-# Cryptography Flow & Keys Architecture (Variant B+ ECDHE with Root CA)
+# Przepływ kryptografii i architektura kluczy (wariant B+ ECDHE z Root CA)
 
-This document specifies the information flow, role, and storage location of every element used in the cryptographic process protecting the Compass application and the KeyFirmware hardware dongle.
+Ten dokument opisuje przepływ informacji, rolę oraz miejsce przechowywania każdego elementu wykorzystywanego w procesie kryptograficznym chroniącym aplikację Compass i sprzętowy dongle KeyFirmware.
 
-## 1. List of All Used Keys
+## 1. Lista wszystkich używanych kluczy
 
-The following table gathers all cryptographic keys used in the system:
+Poniższa tabela zbiera wszystkie klucze kryptograficzne używane w systemie:
 
-| Key Name | Where is it generated? | Where and how is it stored? | What is it used for? | Confidentiality |
+| Nazwa klucza | Gdzie jest generowany? | Gdzie i jak jest przechowywany? | Do czego służy? | Poufność |
 |---|---|---|---|---|
-| **Root CA Private Key** | Utility script on an isolated company PC in the factory. | Secured file (e.g., .pem with a password) offline. **Never** goes to the client. | Signing public identity certificates for newly manufactured Dongles. (Provisioning). | **CRITICAL** |
-| **Root CA Public Key** | Derived from Root CA Private Key. | Hardcoded directly into the Compass client application code. | Authenticity verification (signature checking) of the connected Dongle. The PC checks if the Dongle's certificate came from your factory. | Public |
-| **PUF Root Key (RK)** | EFR32MG24 Silicon (Automatically at boot, SRAM physics). | Exists only in volatile hardware cells and is hidden from the main Cortex-M33 processor. Disappears after power off. | Used by the built-in Hardware Security Engine (HSE) to wrap (encrypt) other keys stored in Flash. | **CRITICAL** |
-| **Identity Private Key (Device)** | Inside the EFR32 crypto processor (during provisioning). | Stored in Flash (NVM3), but wrapped (encrypted) by the PUF key. No one (not even your C code) has plaintext access to it. | Device identity. Used EXCLUSIVELY to sign the ephemeral key during USB plug-in, proving it's an authentic dongle. | **CRITICAL** |
-| **Identity Public Key (Device)** | Derived from the Identity Private Key above during provisioning. | Part of the Device Certificate stored in plaintext in the Dongle's NVM3 Flash memory. Sent to the PC at startup. | Verified by the PC, attests the binding of the physical device to the factory. | Public |
-| **PC Ephemeral Key (ECDHE)** | Python process (Compass) on the client PC, at every connection. | Application RAM. Destroyed after deriving the session key. | One half of the Diffie-Hellman puzzle to derive the session key. Changes after disconnect/forced rotation. | Protected (PFS) |
-| **Device Ephemeral Key (ECDHE)** | EFR32MG24 Microcontroller, at every connection. | Crypto engine RAM. Destroyed after deriving the session key. | Second half of the Diffie-Hellman puzzle. | Protected (PFS) |
-| **Session Key (AES-256-GCM)** | Result of HKDF on both devices (PC and Dongle) based on the Ephemeral exchange. | PC RAM and volatile coprocessor slots in EFR32. Completely destroyed after key rotation (e.g., every minute) or USB disconnect. | The main "meat". We encrypt physical data flowing through the COM port with this key. Rotation protects against PC RAM dumps. | **HIGH** |
+| **Klucz prywatny Root CA** | Skrypt narzędziowy na odizolowanym firmowym komputerze w fabryce. | Zabezpieczony plik (np. .pem z hasłem) offline. **Nigdy** nie trafia do klienta. | Podpisywanie publicznych certyfikatów tożsamości nowo wyprodukowanych dongli. (Provisioning). | **KRYTYCZNA** |
+| **Klucz publiczny Root CA** | Pochodny od klucza prywatnego Root CA. | Zapisany na stałe (hardcoded) bezpośrednio w kodzie aplikacji klienckiej Compass. | Weryfikacja autentyczności (sprawdzanie podpisu) podłączonego dongla. PC sprawdza, czy certyfikat dongla pochodzi z Twojej fabryki. | Publiczna |
+| **PUF Root Key (RK)** | Krzem EFR32MG24 (automatycznie przy starcie, fizyka pamięci SRAM). | Istnieje wyłącznie w ulotnych komórkach sprzętowych i jest ukryty przed głównym procesorem Cortex-M33. Znika po wyłączeniu zasilania. | Używany przez wbudowany sprzętowy silnik bezpieczeństwa (HSE) do opakowywania (szyfrowania) innych kluczy przechowywanych w pamięci Flash. | **KRYTYCZNA** |
+| **Klucz prywatny tożsamości (urządzenie)** | Wewnątrz procesora kryptograficznego EFR32 (podczas provisioningu). | Przechowywany w pamięci Flash (NVM3), ale opakowany (zaszyfrowany) kluczem PUF. Nikt (nawet Twój kod w C) nie ma dostępu do jego postaci jawnej. | Tożsamość urządzenia. Używany WYŁĄCZNIE do podpisywania klucza efemerycznego przy podłączeniu USB, co dowodzi, że jest to autentyczny dongle. | **KRYTYCZNA** |
+| **Klucz publiczny tożsamości (urządzenie)** | Pochodny od powyższego klucza prywatnego tożsamości podczas provisioningu. | Część certyfikatu urządzenia przechowywanego w postaci jawnej w pamięci Flash NVM3 dongla. Wysyłany do PC przy starcie. | Weryfikowany przez PC, poświadcza powiązanie fizycznego urządzenia z fabryką. | Publiczna |
+| **Klucz efemeryczny PC (ECDHE)** | Proces Pythona (Compass) na komputerze klienta, przy każdym połączeniu. | Pamięć RAM aplikacji. Niszczony po wyprowadzeniu klucza sesji. | Jedna połowa układanki Diffiego-Hellmana służącej do wyprowadzenia klucza sesji. Zmienia się po rozłączeniu/wymuszonej rotacji. | Chroniona (PFS) |
+| **Klucz efemeryczny urządzenia (ECDHE)** | Mikrokontroler EFR32MG24, przy każdym połączeniu. | Pamięć RAM silnika kryptograficznego. Niszczony po wyprowadzeniu klucza sesji. | Druga połowa układanki Diffiego-Hellmana. | Chroniona (PFS) |
+| **Klucz sesji (AES-256-GCM)** | Wynik HKDF na obu urządzeniach (PC i dongle) na podstawie wymiany kluczy efemerycznych. | Pamięć RAM PC i ulotne sloty koprocesora w EFR32. Całkowicie niszczony po rotacji klucza (np. co minutę) lub odłączeniu USB. | Właściwe „mięso”. Tym kluczem szyfrujemy fizyczne dane przepływające przez port COM. Rotacja chroni przed zrzutami pamięci RAM z PC. | **WYSOKA** |
 
 ---
 
-## 2. Flow Diagrams
+## 2. Diagramy przepływu
 
-### Process A: Provisioning (Factory Production)
-You execute this process at your desk after soldering the board, using KeySec scripts.
+### Proces A: Provisioning (produkcja fabryczna)
+Ten proces wykonujesz przy swoim biurku po przylutowaniu płytki, używając skryptów KeySec.
 
 `mermaid
 sequenceDiagram
@@ -30,47 +30,47 @@ sequenceDiagram
     participant EFR32 (KeyFirmware)
     participant HSE (Hardware Security Engine)
 
-    Note over Factory (KeySec): Holds "Root CA Private Key" in an offline safe
+    Note over Factory (KeySec): Przechowuje „klucz prywatny Root CA” w sejfie offline
     Factory (KeySec)->>EFR32 (KeyFirmware): CMD_PROVISION_IDENTITY
-    EFR32 (KeyFirmware)->>HSE (Hardware Security Engine): Generate Key Pair (Identity)
-    HSE (Hardware Security Engine)-->>EFR32 (KeyFirmware): Return Public Key, hide Private (PUF)
-    EFR32 (KeyFirmware)-->>Factory (KeySec): Identity Public Key
-    Note over Factory (KeySec): Creating Certificate:<br>1. Creates payload: "EFR32 Public Key"<br>2. Signs payload using Root CA Priv Key
-    Factory (KeySec)->>EFR32 (KeyFirmware): CMD_SAVE_CERTIFICATE (Device Cert)
-    EFR32 (KeyFirmware)->>EFR32 (KeyFirmware): Save Certificate in NVM3
-    Note over EFR32 (KeyFirmware), Factory (KeySec): PROCESS COMPLETED - DEVICE READY FOR SHIPPING
+    EFR32 (KeyFirmware)->>HSE (Hardware Security Engine): Generuje parę kluczy (tożsamości)
+    HSE (Hardware Security Engine)-->>EFR32 (KeyFirmware): Zwraca klucz publiczny, ukrywa prywatny (PUF)
+    EFR32 (KeyFirmware)-->>Factory (KeySec): Klucz publiczny tożsamości
+    Note over Factory (KeySec): Tworzenie certyfikatu:<br>1. Tworzy payload: „klucz publiczny EFR32”<br>2. Podpisuje payload kluczem prywatnym Root CA
+    Factory (KeySec)->>EFR32 (KeyFirmware): CMD_SAVE_CERTIFICATE (certyfikat urządzenia)
+    EFR32 (KeyFirmware)->>EFR32 (KeyFirmware): Zapisuje certyfikat w NVM3
+    Note over EFR32 (KeyFirmware), Factory (KeySec): PROCES ZAKOŃCZONY - URZĄDZENIE GOTOWE DO WYSYŁKI
 `
 
-### Process B: Handshake and Protection (At Client Site)
-This process triggers immediately every time the client software (Compass) attempts to communicate with the Dongle.
+### Proces B: Handshake i ochrona (u klienta)
+Ten proces uruchamia się natychmiast za każdym razem, gdy oprogramowanie klienckie (Compass) próbuje komunikować się z donglem.
 
 `mermaid
 sequenceDiagram
     participant Compass (PC Client)
     participant EFR32 (PUF Dongle)
 
-    Note over Compass (PC Client): Holds hardcoded Root CA Public Key
+    Note over Compass (PC Client): Przechowuje zapisany na stałe klucz publiczny Root CA
     Compass (PC Client)->>EFR32 (PUF Dongle): CMD_HELLO
-    EFR32 (PUF Dongle)-->>Compass (PC Client): Sends its Device Certificate (from NVM3)
-    Note over Compass (PC Client): Verifies Certificate using Root CA Pub Key.<br>Checks if the Dongle is counterfeit.
+    EFR32 (PUF Dongle)-->>Compass (PC Client): Wysyła swój certyfikat urządzenia (z NVM3)
+    Note over Compass (PC Client): Weryfikuje certyfikat kluczem publicznym Root CA.<br>Sprawdza, czy dongle nie jest podróbką.
     
-    Note over Compass (PC Client), EFR32 (PUF Dongle): --- START ECDHE EXCHANGE ---
-    Compass (PC Client)->>Compass (PC Client): Generates PC_Ephemeral_Key
-    EFR32 (PUF Dongle)->>EFR32 (PUF Dongle): Generates Device_Ephemeral_Key
+    Note over Compass (PC Client), EFR32 (PUF Dongle): --- START WYMIANY ECDHE ---
+    Compass (PC Client)->>Compass (PC Client): Generuje PC_Ephemeral_Key
+    EFR32 (PUF Dongle)->>EFR32 (PUF Dongle): Generuje Device_Ephemeral_Key
     
     Compass (PC Client)->>EFR32 (PUF Dongle): PC_Ephemeral_Pub_Key
-    Note over EFR32 (PUF Dongle): Hardware signs (ECDSA)<br>its ephemeral using Identity Private Key (from PUF)
+    Note over EFR32 (PUF Dongle): Sprzęt podpisuje (ECDSA)<br>swój klucz efemeryczny kluczem prywatnym tożsamości (z PUF)
     EFR32 (PUF Dongle)-->>Compass (PC Client): Device_Ephemeral_Pub_Key + SIGNATURE
     
-    Note over Compass (PC Client): Verifies SIGNATURE using Pub Key from Dongle's Certificate.<br>Secures against Man-in-the-Middle!
+    Note over Compass (PC Client): Weryfikuje SIGNATURE kluczem publicznym z certyfikatu dongla.<br>Zabezpiecza przed atakiem Man-in-the-Middle!
     
-    Note over Compass (PC Client), EFR32 (PUF Dongle): Both parties calculate Shared Secret = f(My_Priv, Their_Pub)<br>From it, they derive the target Session_Key (HKDF)
+    Note over Compass (PC Client), EFR32 (PUF Dongle): Obie strony obliczają Shared Secret = f(My_Priv, Their_Pub)<br>Z niego wyprowadzają docelowy Session_Key (HKDF)
     
-    Note over Compass (PC Client), EFR32 (PUF Dongle): --- ENCRYPTED COMMUNICATION ---
+    Note over Compass (PC Client), EFR32 (PUF Dongle): --- KOMUNIKACJA SZYFROWANA ---
     Compass (PC Client)->>EFR32 (PUF Dongle): GCM_ENCRYPT(AES_Session_Key, Counter=1, Data="Check status")
     EFR32 (PUF Dongle)-->>Compass (PC Client): GCM_ENCRYPT(AES_Session_Key, Counter=2, Data="OK")
     
-    Note over Compass (PC Client), EFR32 (PUF Dongle): (After 1 minute) - REKEYING
-    Compass (PC Client)->>EFR32 (PUF Dongle): CMD_REKEY (Without dropping session)
-    Note over Compass (PC Client), EFR32 (PUF Dongle): Destruction of AES_Session_Key, generation of new one.
+    Note over Compass (PC Client), EFR32 (PUF Dongle): (Po 1 minucie) - REKEYING
+    Compass (PC Client)->>EFR32 (PUF Dongle): CMD_REKEY (bez zrywania sesji)
+    Note over Compass (PC Client), EFR32 (PUF Dongle): Zniszczenie AES_Session_Key, wygenerowanie nowego.
 `

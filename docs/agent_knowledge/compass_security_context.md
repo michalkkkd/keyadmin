@@ -1,23 +1,23 @@
-﻿# Compass Application - Security Context
+﻿# Aplikacja Compass - kontekst bezpieczeństwa
 
-This document extracts critical security-related information about the main Windows host application (Compass) and its integration with KeySec and compass_api.
+Ten dokument zbiera kluczowe informacje dotyczące bezpieczeństwa głównej aplikacji hosta dla Windows (Compass) oraz jej integracji z KeySec i compass_api.
 
-## 1. Ultimate Protection Suite (Nuitka Commercial & Themida)
-The main application (Compass) operates under a zero-trust model and is fortified using a commercial-grade protection stack:
-* **Nuitka Commercial:** Translates the entire Python ecosystem into native C/C++ code, completely eliminating Python bytecode (.pyc).
-* **Nuitka VM:** Virtualizes the execution flow and encrypts critical constants.
-* **Themida:** Wraps the final executable, providing extreme Anti-Dump, Anti-Debug, and Anti-VM capabilities, alongside code virtualization.
+## 1. Kompletny pakiet ochrony (Nuitka Commercial i Themida)
+Główna aplikacja (Compass) działa w modelu zero-trust i jest wzmocniona komercyjnym zestawem zabezpieczeń:
+* **Nuitka Commercial:** Tłumaczy cały ekosystem Pythona na natywny kod C/C++, całkowicie eliminując bytecode Pythona (.pyc).
+* **Nuitka VM:** Wirtualizuje przepływ wykonania i szyfruje krytyczne stałe.
+* **Themida:** Opakowuje finalny plik wykonywalny, zapewniając bardzo silną ochronę Anti-Dump, Anti-Debug i Anti-VM, a także wirtualizację kodu.
 
-**CRITICAL NOTE ON DEPLOYMENT:** Because of this commercial protection stack, standard Python packaging concerns (such as the typical Nuitka --onefile %TEMP% folder extraction vulnerabilities) **DO NOT APPLY**. The execution is heavily virtualized and protected from disk-based extraction monitoring.
+**KRYTYCZNA UWAGA DOTYCZĄCA WDROŻENIA:** Dzięki temu komercyjnemu zestawowi zabezpieczeń typowe problemy pakowania aplikacji Pythona (np. znane podatności Nuitka --onefile związane z rozpakowywaniem do folderu %TEMP%) **NIE MAJĄ ZASTOSOWANIA**. Wykonanie jest silnie zwirtualizowane i chronione przed monitorowaniem rozpakowywania plików na dysk.
 
-## 2. Global Error Handling & Telemetry
-* **CompassLogger:** The application features a global singleton logger that monkey-patches sys.excepthook and Tornado's log_exception. 
-  - **Security Consequence:** Any crash, including those caused by security mechanisms (e.g., dongle disconnection, tampered memory), will generate a FATAL_CRASH_REPORT.txt containing full stack traces and context. Care must be taken to ensure Nuitka VM obfuscates this output enough so it doesn't leak plaintext logic to an attacker.
+## 2. Globalna obsługa błędów i telemetria
+* **CompassLogger:** Aplikacja ma globalny logger typu singleton, który podmienia (monkey-patching) sys.excepthook oraz log_exception z Tornado. 
+  - **Konsekwencja dla bezpieczeństwa:** Każda awaria, także wywołana przez mechanizmy bezpieczeństwa (np. odłączenie dongla, zmodyfikowana pamięć), wygeneruje plik FATAL_CRASH_REPORT.txt z pełnymi stack trace'ami i kontekstem. Trzeba zadbać o to, by Nuitka VM wystarczająco zaciemniała te dane i nie ujawniała atakującemu logiki w postaci jawnego tekstu.
 
-## 3. Session Management
-* **Web Server Nature:** Compass acts as a local web server (Tornado). Multiple users can connect to it via browser sessions.
-* **Session Storage:** Sessions are managed dynamically (e.g., data/session/session_store.json). Currently, it maps tokens (like MY_SUPER_SECRET_TOKEN_E2E) to user emails and created_at timestamps. 
-  - **Security Consequence:** Because it acts as a server, enforcing the "User Limit" requires tracking active sessions on the backend and delegating that enforcement to the KeySec hardware dongle.
+## 3. Zarządzanie sesjami
+* **Charakter serwera WWW:** Compass działa jako lokalny serwer WWW (Tornado). Wielu użytkowników może się z nim łączyć przez sesje przeglądarki.
+* **Przechowywanie sesji:** Sesje są zarządzane dynamicznie (np. data/session/session_store.json). Obecnie plik mapuje tokeny (takie jak MY_SUPER_SECRET_TOKEN_E2E) na adresy e-mail użytkowników i timestampy created_at. 
+  - **Konsekwencja dla bezpieczeństwa:** Ponieważ aplikacja działa jako serwer, egzekwowanie „limitu użytkowników” wymaga śledzenia aktywnych sesji po stronie backendu i przekazania tego egzekwowania sprzętowemu donglowi KeySec.
 
-## 4. Dependencies
-* Relies on complex dynamic libraries (Pandas, Numba, Scipy) which are embedded and obfuscated. The usage of Numba (JIT compilation) means some mathematical functions are compiled to machine code at runtime, which must be carefully aligned with Themida's memory protection rules to prevent false-positive crashes (e.g., DEP/NX violations).
+## 4. Zależności
+* Aplikacja korzysta ze złożonych bibliotek dynamicznych (Pandas, Numba, Scipy), które są osadzone i zaciemnione. Użycie Numby (kompilacja JIT) oznacza, że część funkcji matematycznych jest kompilowana do kodu maszynowego w trakcie działania programu. Trzeba to starannie zgrać z regułami ochrony pamięci Themidy, aby uniknąć fałszywie pozytywnych awarii (np. naruszeń DEP/NX).

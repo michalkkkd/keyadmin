@@ -1,25 +1,25 @@
-﻿# Hardware and Environment (Important Information)
+﻿# Sprzęt i środowisko (ważne informacje)
 
-* **Main Microcontroller:** EFR32MG24B220F1536IM48 (Silicon Labs) - the pp.c logic runs on this. It features Secure Vault supporting anti-tampering, cryptography, and secure key storage.
-* **Development Board:** Seeed Studio XIAO MG24.
-* **Bridge / Debugger:** On the bottom of the board, there is a hidden **SAMD11** coprocessor. It serves as a hardware debugger (CMSIS-DAP) and a USB-UART bridge. This means Windows talks to SAMD11, and SAMD11 forwards the information to EFR32.
-* **CRITICAL RULE:** **Never hold down the RESET button on the board while connecting it to the USB cable.** This will cause the SAMD11 to enter bootloader mode, completely disabling the CMSIS-DAP debugger interface and making it impossible to flash the board. Plug in the USB cable normally without pressing anything.
+* **Główny mikrokontroler:** EFR32MG24B220F1536IM48 (Silicon Labs) - na nim działa logika `app.c`. Ma Secure Vault (sprzętowy moduł bezpieczeństwa) obsługujący anti-tampering (ochronę przed fizyczną ingerencją), kryptografię i bezpieczne przechowywanie kluczy.
+* **Płytka deweloperska:** Seeed Studio XIAO MG24.
+* **Mostek / debugger:** Na spodzie płytki znajduje się ukryty koprocesor **SAMD11**. Pełni on rolę sprzętowego debuggera (CMSIS-DAP) i mostka USB-UART. Oznacza to, że Windows komunikuje się z SAMD11, a SAMD11 przekazuje dane do EFR32.
+* **KRYTYCZNA ZASADA:** **Nigdy nie przytrzymuj przycisku RESET na płytce podczas podłączania jej kablem USB.** Spowoduje to przejście SAMD11 w tryb bootloadera, co całkowicie wyłącza interfejs debuggera CMSIS-DAP i uniemożliwia flashowanie płytki. Podłącz kabel USB normalnie, niczego nie wciskając.
 
-## Activated Modules and Components (in Simplicity Studio)
+## Aktywowane moduły i komponenty (w Simplicity Studio)
 
-During project configuration (t_soc_empty.slcp), we included the following components into the EFR32 core:
+Podczas konfiguracji projektu (`bt_soc_empty`.slcp) dodaliśmy do rdzenia EFR32 następujące komponenty:
 
-* **IO Stream: USART** (instance: com): 
-  * Pin mapping: PA08 (TX) and PA09 (RX).
-  * Baud rate: 115200.
-  * Purpose: Physical routing of communication from the EFR32 processor to the SAMD11 bridge.
+* **IO Stream: USART** (instancja: `vcom`): 
+  * Mapowanie pinów: PA08 (TX) i PA09 (RX).
+  * Prędkość transmisji (baud rate): 115200.
+  * Przeznaczenie: fizyczne poprowadzenie komunikacji z procesora EFR32 do mostka SAMD11.
 * **Retarget STDIO**: 
-  * Purpose: Historically for handling printf(). It allows routing standard input/output streams (C) to the selected interface (in our case, com).
+  * Przeznaczenie: historycznie obsługa printf(). Pozwala przekierować standardowe strumienie wejścia/wyjścia (C) na wybrany interfejs (u nas: `vcom`).
 * **Power Manager**: 
-  * Purpose: Control of sleep states. We use the command sl_power_manager_add_em_requirement(SL_POWER_MANAGER_EM1); to block the processor from entering Deep Sleep (EM2), which would prevent proper, lossless UART communication.
-* **cJSON** (External Library):
-  * We included a hardware library from GitHub for professional and secure parsing of JSON objects, bypassing primitive and leaky text scanning methods.
+  * Przeznaczenie: sterowanie stanami uśpienia. Poleceniem sl_power_manager_add_em_requirement(SL_POWER_MANAGER_EM1); blokujemy przejście procesora w głębokie uśpienie (Deep Sleep, EM2), które uniemożliwiłoby poprawną, bezstratną komunikację UART.
+* **cJSON** (biblioteka zewnętrzna):
+  * Dodaliśmy bibliotekę sprzętową z GitHuba do profesjonalnego i bezpiecznego parsowania obiektów JSON, zamiast prymitywnych i dziurawych metod skanowania tekstu.
 
 
-## PRODUCTION NOTE: RTC Battery
-While the current development board (Seeed Studio XIAO MG24) does not have a physical RTC battery, the **final production hardware WILL have a dedicated RTC battery**. The software architecture should accommodate this future capability.
+## UWAGA PRODUKCYJNA: bateria RTC
+Obecna płytka deweloperska (Seeed Studio XIAO MG24) nie ma fizycznej baterii RTC (podtrzymującej zegar czasu rzeczywistego), jednak **docelowy sprzęt produkcyjny BĘDZIE miał dedykowaną baterię RTC**. Architektura oprogramowania powinna uwzględniać tę przyszłą możliwość.
