@@ -15,16 +15,9 @@ from keyadmin.core.constants import (
     SDL_JSON_NOTE,
     SDL_PROTECTED_NOTE,
     SDL_DEVICE_DIR_FMT,
-    SDL_CHALLENGE_DIR_FMT,
     SDL_COMMAND_KEY_FILENAME,
     SDL_COMMAND_PUBKEY_FILENAME,
-    SDL_CERT_KEY_FILENAME,
-    SDL_CERT_PUBKEY_FILENAME,
-    SDL_ACCESS_CERT_FILENAME,
     SDL_DEVICE_INFO_FILENAME,
-    SDL_CHALLENGE_FILENAME,
-    SDL_UNLOCK_TOKEN_FILENAME,
-    SDL_RESULT_FILENAME,
     SDL_JSON_SERIAL,
     SDL_JSON_PORT,
     SDL_JSON_LAST_STATUS,
@@ -49,9 +42,9 @@ class SecureDebugStore:
     <keys>/debug_command_key.pem                    private Command Key (one per product / factory)
     <keys>/debug_command_pubkey.pem
     <root>/protected_devices.json                   serials that must never be debug-locked (dev units)
-    <root>/devices/device_<SE serial>/device.json   status snapshots + event history
-    <root>/devices/device_<SE serial>/cert_key.pem, cert_pubkey.pem, access_certificate.bin
-    <root>/devices/device_<SE serial>/challenge_<challenge>/challenge.bin, unlock_token.bin, result.json
+    <root>/devices/device_<SE serial>/device.json   status snapshots + event history (no key material)
+
+    Unlock material (access certificate, its key, unlock token) is built in memory per unlock and never stored.
     """
 
     def __init__(self, root_dir: Optional[str] = None, keys_dir: Optional[str] = None):
@@ -109,34 +102,6 @@ class SecureDebugStore:
         path = os.path.join(self.root_dir, SDL_DEVICES_DIRNAME, SDL_DEVICE_DIR_FMT.format(serial=serial.upper()))
         os.makedirs(path, exist_ok=True)
         return path
-
-    def challenge_dir(self, serial: str, challenge_hex: str) -> str:
-        path = os.path.join(self.device_dir(serial), SDL_CHALLENGE_DIR_FMT.format(challenge=challenge_hex.upper()))
-        os.makedirs(path, exist_ok=True)
-        return path
-
-    def load_cert_key(self, serial: str) -> Optional[ec.EllipticCurvePrivateKey]:
-        path = os.path.join(self.device_dir(serial), SDL_CERT_KEY_FILENAME)
-        return self._read_private_key(path) if os.path.isfile(path) else None
-
-    def save_cert_key(self, serial: str, key: ec.EllipticCurvePrivateKey) -> None:
-        folder = self.device_dir(serial)
-        self._write_private_key(os.path.join(folder, SDL_CERT_KEY_FILENAME), key)
-        self._write_public_key(os.path.join(folder, SDL_CERT_PUBKEY_FILENAME), key.public_key())
-
-    def load_access_certificate(self, serial: str) -> Optional[bytes]:
-        path = os.path.join(self.device_dir(serial), SDL_ACCESS_CERT_FILENAME)
-        return self._read_bytes(path) if os.path.isfile(path) else None
-
-    def save_access_certificate(self, serial: str, certificate: bytes) -> None:
-        self._write_bytes(os.path.join(self.device_dir(serial), SDL_ACCESS_CERT_FILENAME), certificate)
-
-    def save_unlock_attempt(self, serial: str, challenge: bytes, token: bytes, result: Dict[str, object]) -> str:
-        folder = self.challenge_dir(serial, challenge.hex())
-        self._write_bytes(os.path.join(folder, SDL_CHALLENGE_FILENAME), challenge)
-        self._write_bytes(os.path.join(folder, SDL_UNLOCK_TOKEN_FILENAME), token)
-        self._write_json(os.path.join(folder, SDL_RESULT_FILENAME), result)
-        return folder
 
     def record_event(self, serial: str, event: str, details: Dict[str, object],
                      status: Optional[Dict[str, object]] = None, port: Optional[str] = None) -> str:

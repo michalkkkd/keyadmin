@@ -97,6 +97,7 @@ MCU_ERR_DECRYPTION_FAILED   = "Decryption Failed"
 # ==============================================================================
 HKDF_CLIENT_INFO            = b"KEYSEC_CLIENT_WRITE_KEY_V1"
 HKDF_SERVER_INFO            = b"KEYSEC_SERVER_WRITE_KEY_V1"
+HOST_AUTH_LABEL             = b"KEYSEC_HOST_AUTH_V1"
 
 NONCE_DIR_HOST_TO_DEVICE    = 0x01
 NONCE_DIR_DEVICE_TO_HOST    = 0x02

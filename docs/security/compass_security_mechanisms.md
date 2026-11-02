@@ -11,8 +11,8 @@
 Architektura bezpieczeństwa systemu Compass opiera się na **modelu zerowego zaufania (zero-trust)** oraz strategii **obrony w głąb (defense-in-depth)**. Zabezpieczenia zostały wdrożone na czterech niezależnych poziomach fizycznych i logicznych:
 
 1. **Sprzętowe mechanizmy bezpieczeństwa krzemu (Silicon Labs EFR32MG24 / Secure Vault High / ARM TrustZone):** Układ SoC z certyfikatem **PSA Certified Level 3**, wyposażony w niezależny koprocesor bezpieczeństwa (Hardware Secure Engine - HSE), sprzętową izolację domen pamięci **ARM TrustZone (Cortex-M33)** z jednostką SAU, krzemową funkcję niekopiowalną (PUF), sprzętowe przeciwdziałanie atakom różnicowej analizy mocy (DPA), bezpieczny rozruch (Secure Boot RTSL), blokadę debugera (Secure Debug) oraz wbudowane detektory anomalii fizycznych.
-2. **Fizyczna, środowiskowa i logiczna ochrona antysabotażowa (TamperManager):** Scentralizowany system zarządzania naruszeniami (**TamperManager**), zliczający incydenty według 10 kategorii (fizyczne krańcówki GPIO C5/C6, naruszenia protokołu VRX, sensory skrajnych temperatur próbkowane co 5s, detektory spadku napięcia BOD, anomalii oscylatora HFXO oraz impulsów EMP). System nadzoruje progi naruszeń, po przekroczeniu których uruchamiana jest procedura autodestrukcji i wymazywania kodu źródłowego programu z pamięci RAM (Flash Code Zeroization), przy jednoczesnym utrwaleniu rekordu Czarnej Skrzynki (Black Box) na wydzielonej stronie Flash (0x0817E000) do późniejszej analizy śledczej przez interfejs SWD.
-3. **Bezpieczny kanał komunikacyjny (Szyfrowany Transport RPC):** Wzajemne uwierzytelnianie oparte o infrastrukturę klucza publicznego (PKI), efemeryczna wymiana kluczy ECDHE (krzywa NIST P-256) gwarantująca idealną poufność w przód (Perfect Forward Secrecy - PFS), unikalne dwukierunkowe klucze sesyjne wyprowadzane przez HKDF-SHA256, szyfrowanie symetryczne AES-256-GCM (AEAD) oraz ochrona przed atakami powtórzeniowymi (replay attack) za pomocą ścisłych liczników monotonicznych.
+2. **Fizyczna, środowiskowa i logiczna ochrona antysabotażowa (TamperManager):** Scentralizowany system zarządzania naruszeniami (**TamperManager**), zliczający incydenty według 10 kategorii (fizyczne krańcówki GPIO C5/C6, naruszenia protokołu VRX, sensory skrajnych temperatur próbkowane co 5s, detektory spadku napięcia BOD, anomalii oscylatora HFXO oraz impulsów EMP). System nadzoruje progi naruszeń, po przekroczeniu których uruchamiana jest procedura autodestrukcji i wymazywania kodu źródłowego programu z pamięci RAM (Flash Code Zeroization), przy jednoczesnym utrwaleniu zaszyfrowanego logu zdarzeń (AES-128) na stronie User Data (0x0FE00000, nienaruszanej przez device erase) do późniejszej analizy śledczej przez interfejs SWD.
+3. **Bezpieczny kanał komunikacyjny (Szyfrowany Transport RPC):** Wzajemne uwierzytelnienie: dongle wobec Compass przez PKI (Root CA), Compass wobec dongla kluczem hosta (`XRouter._HOST_KEY`), efemeryczna wymiana kluczy ECDHE (krzywa NIST P-256) gwarantująca idealną poufność w przód (Perfect Forward Secrecy - PFS), unikalne dwukierunkowe klucze sesyjne wyprowadzane przez HKDF-SHA256, szyfrowanie symetryczne AES-256-GCM (AEAD, z typem komendy i statusem OK/ERR jako AAD; błędy po nawiązaniu sesji też są szyfrowane) oraz ochrona przed atakami powtórzeniowymi (replay attack) za pomocą ścisłych liczników monotonicznych.
 4. **Wyniesienie logiki biznesowej i prekompilacja kodu:** Całkowite usunięcie krytycznych algorytmów farmakokinetycznych ze środowiska Python na hoście. Przeniesienie kluczowych funkcji bezpośrednio do firmware'u mikrokontrolera oraz przepisanie ciężkich procedur numerycznych na natywne biblioteki C++ i prekompilowane moduły Clang.
 5. **Wirtualizacja i utwardzenie binarne (Nuitka Commercial + Oreans Themida):** Kompilacja kodu Python bezpośrednio do natywnego kodu maszynowego C/C++ (usuwająca w 100% kod bajtowy `.pyc`), szyfrowanie ciągów znaków i stałych, zaciemnianie śladów stosu (traceback encryption) oraz opancerzenie pliku wykonywalnego silnikiem Themida (ochrona przed debugerami, zrzutami pamięci RAM, środowiskami wirtualnymi i wirtualizacja instrukcji procesora).
 
@@ -29,7 +29,7 @@ flowchart TD
     subgraph EFR32MG24["Silicon Labs EFR32MG24 (SoC)"]
         subgraph HSE["Hardware Secure Engine (HSE) - Odizolowany Rdzeń Bezpieczeństwa"]
             ROM["Niezmienna Pamięć ROM (Root of Trust) [AKTYWNE - 100%]"]
-            PUF["Krzemowy PUF (Physically Unclonable Function) [AKTYWNE - 100%]"]
+            PUF["Krzemowy PUF (Physically Unclonable Function) [AKTYWNE - klucz tożsamości]"]
             TRNG["Sprzętowy Generator TRNG (NIST SP 800-90A/B/C) [AKTYWNE - 100%]"]
             DPA["Koprocesor Krypto z Maskowaniem DPA [AKTYWNE SPRZĘTOWO - 100%]"]
             AT_MOD["Sprzętowy Moduł OTP Anti-Tamper: Glitch, Temp, EMP [NIEWYKORZYSTANE - 0% (Wymaga OTP)]"]
@@ -39,8 +39,8 @@ flowchart TD
             TZ["ARM TrustZone (Secure/Non-Secure) [AKTYWNE - 100%]"]
             FW["Oprogramowanie KeyFirmware (Logika C) [AKTYWNE - 100%]"]
             TM["Centralny TamperManager & Sensory Sprzętowe (BOD, Temp, HFXO, EMP) [AKTYWNE - 100%]"]
-            NVM3["Zaszyfrowany Magazyn Flash (NVM3) [AKTYWNE - 100%]"]
-            BB["Czarna Skrzynka Flash (Black Box 0x0817E000) [AKTYWNE - 100%]"]
+            NVM3["Magazyn NVM3 świata Secure (niezaszyfrowany; klucz tożsamości owinięty PUF) [AKTYWNE]"]
+            BB["Zaszyfrowany log tamperów User Data (0x0FE00000) [AKTYWNE - 100%]"]
             RAM_WIPE["Autodestrukcja Kodu w RAM (Flash Zeroization) [AKTYWNE - 100% (Dev Mode 50%)]"]
         end
 
@@ -48,7 +48,7 @@ flowchart TD
     end
 
     EXT_PINS["Zewnętrzne Piny Sabotażowe (GPIO C5/C6) [AKTYWNE - 100%]"] --> TM
-    EXT_DEBUG["Interfejs SWD / JTAG (Odczyt Czarnej Skrzynki / Zrzut Pamięci)"] -.-> BB
+    EXT_DEBUG["Interfejs SWD / JTAG (Odczyt logu tamperów / Zrzut Pamięci)"] -.-> BB
 ```
 
 ---
@@ -57,11 +57,11 @@ flowchart TD
 
 #### 1. Dedykowany Koprocesor Bezpieczeństwa (Hardware Secure Engine - HSE) — `[AKTYWNE]`
 * **Opis sprzętowy:** Fizycznie odizolowany, niezależny koprocesor bezpieczeństwa z własnym rdzeniem CPU, pamięcią ROM, RAM i Flash, oddzielony sprzętowo od głównego rdzenia aplikacji (ARM Cortex-M33).
-* **Stan w projekcie:** **`[AKTYWNE]`**. Oprogramowanie `KeyFirmware` wykorzystuje oficjalne API Silicon Labs **PSA Crypto**. Wszystkie klucze kryptograficzne i operacje matematyczne (ECC NIST P-256, ECDHE, AES-256-GCM, HKDF) są izolowane w koprocesorze HSE. Rdzeń Cortex-M33 nie ma bezpośredniego dostępu do rejestrów kryptograficznych, co zabezpiecza klucze przed wyciekiem w przypadku ewentualnych błędów pamięci w warstwie aplikacji.
+* **Stan w projekcie:** **`[AKTYWNE]`**. Oprogramowanie `KeyFirmware` wykorzystuje oficjalne API Silicon Labs **PSA Crypto** (oraz SE Manager dla logu tamperów i Secure Debug). Operacje kryptograficzne (ECC NIST P-256, ECDHE, AES-256-GCM, HKDF, AES-128) wykonuje HSE. Klucze: tożsamość urządzenia jest owinięta PUF-em i odszyfrowuje ją tylko HSE; klucze sesyjne i efemeryczne to klucze PSA w pamięci RAM świata Secure (przekazywane do HSE przy każdej operacji); Tamper Log Key jest wkompilowany w obraz Secure. Przed kodem Non-Secure chroni je TrustZone, przed odczytem przez SWD Secure Debug Lock.
 
 #### 2. Bezpieczny Magazyn Kluczy i Krzemowy PUF (Key Wrapping) — `[AKTYWNE]`
 * **Opis sprzętowy:** Krzemowa funkcja niekopiowalna (Physically Unclonable Function) generuje unikalny dla każdego egzemplarza krzemu cyfrowy odcisk palca (PUF Root Key) z losowych stanów startowych komórek SRAM. Służy do symetrycznego szyfrowania (wrappingu) kluczy przed zapisem do pamięci Flash.
-* **Stan w projekcie:** **`[AKTYWNE]`**. Klucz tożsamości mikrokontrolera (`IDENTITY_KEY_ID = 0x00000001`) jest generowany bezpośrednio wewnątrz Secure Vault ([`auth_manager_provision_identity`](../../../KeyFirmware/src/crypto/auth_manager.c#L15)) i składowany w trwałej pamięci NVM3 w postaci zaszyfrowanej kluczem PUF. Żaden klucz prywatny nie istnieje w pamięci Flash w postaci jawnej. Fizyczny zrzut Flash programatorem uniemożliwia odzyskanie klucza.
+* **Stan w projekcie:** **`[AKTYWNE]`** dla klucza tożsamości (`IDENTITY_KEY_ID = 0x81001`). Secure Engine generuje go ([`auth_manager_provision_identity`](../../../KeyFirmware/src/core/crypto/auth_manager.c)) jako trwały klucz w lokalizacji `SL_PSA_KEY_LOCATION_WRAPPED`: w NVM3 leży szyfrogram owinięty kluczem z PUF, bezużyteczny poza tym chipem. Dotyczy dongli provisionowanych firmware od 2026-10-30; starsze mają klucz jawny do ponownego provisioningu. Bez secure boot ktoś z odblokowanym donglem mógłby wgrać własny firmware i *używać* klucza na tym chipie, ale nie może go wynieść. Inne klucze PUF-u nie używają (Tamper Log Key celowo: log odszyfrowujemy na PC).
 
 #### 3. Środki Przeciwdziałania Atakom Bocznokanałowym DPA (Differential Power Analysis) — `[AKTYWNE SPRZĘTOWO]`
 * **Opis sprzętowy:** Sprzętowe maskowanie poboru prądu (power flattening), losowe opóźnienia taktowania (clock jitter / dummy cycles) oraz maskowanie operandów w akceleratorach AES i ECC w celu uniemożliwienia odtworzenia klucza na podstawie oscyloskopowych pomiarów poboru mocy i emisji elektromagnetycznej.
@@ -73,7 +73,7 @@ flowchart TD
 
 #### 5. Sensory Anomalii Zasilania (Voltage Glitch Detectors) — `[AKTYWNE PROGRAMOWO - 50%]`
 * **Opis sprzętowy:** Detektory sprzętowe `VGLITCHFALLING` oraz `VGLITCHRISING` monitorujące linie zasilania pod kątem mikrosekundowych skoków lub zapadów napięcia, mających na celu wywołanie błędów w przetwarzaniu instrukcji warunkowych (fault injection).
-* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W oprogramowaniu układowym `KeyFirmware` wdrożono bezzwłoczną detekcję sprzętowych rejestrów spadku napięcia modułu EMU (`EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)`) oraz procedurę zgłoszeniową `tamper_manager_report_voltage_glitch()`. Przekroczenie progu (2 incydenty) wyzwala procedurę autodestrukcji i zapisu Czarnej Skrzynki. Pełne 100% sprzętowej reakcji w koprocesorze Secure Engine wymaga nieodwracalnego zaprogramowania pamięci OTP (`sl_se_init_otp()`), co zostało odłożone do etapu produkcji masowej, aby chronić płytki deweloperskie przed zniszczeniem niestabilnym zasilaniem USB.
+* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W oprogramowaniu układowym `KeyFirmware` wdrożono bezzwłoczną detekcję sprzętowych rejestrów spadku napięcia modułu EMU (`EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)`) oraz procedurę zgłoszeniową `tamper_manager_report_voltage_glitch()`. Przekroczenie progu (2 incydenty) wyzwala procedurę autodestrukcji (zdarzenie zapisane w logu z flagą WIPE). Pełne 100% sprzętowej reakcji w koprocesorze Secure Engine wymaga nieodwracalnego zaprogramowania pamięci OTP (`sl_se_init_otp()`), co zostało odłożone do etapu produkcji masowej, aby chronić płytki deweloperskie przed zniszczeniem niestabilnym zasilaniem USB.
 
 #### 6. Detektor Zakłóceń Zegara i Logiki Cyfrowej (`DGLITCH`) — `[AKTYWNE PROGRAMOWO - 50%]`
 * **Opis sprzętowy:** Wbudowany układ monitorujący stabilność wewnętrznych generatorów taktujących i wykrywający asynchroniczne szpilki zegarowe (clock glitching).
@@ -85,15 +85,15 @@ flowchart TD
 
 #### 8. Detektor Impulsów Elektromagnetycznych (EMP) — `[AKTYWNE PROGRAMOWO - 50%]`
 * **Opis sprzętowy:** Blok detekcji silnych pól magnetycznych i promieniowania impulsowego stosowanego w atakach bocznych typu EM Fault Injection (EMFI).
-* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W kodzie `KeyFirmware` wdrożono dedykowane API `tamper_manager_report_emp()` oraz zasadę Zero Tolerance (próg = 1 zdarzenie). Dowolny zarejestrowany impuls EMP natychmiast wyzwala procedurę wymazywania Flash i zapis Czarnej Skrzynki. Pełne 100% powiązanie na poziomie mikrosekundowym wymaga uaktywnienia sygnału `SL_SE_TAMPER_ATAMPDET_EMPGD` w pamięci OTP Secure Engine.
+* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W kodzie `KeyFirmware` wdrożono dedykowane API `tamper_manager_report_emp()` oraz zasadę Zero Tolerance (próg = 1 zdarzenie). Dowolny zarejestrowany impuls EMP natychmiast wyzwala procedurę wymazywania Flash (zdarzenie zapisane w logu z flagą WIPE). Pełne 100% powiązanie na poziomie mikrosekundowym wymaga uaktywnienia sygnału `SL_SE_TAMPER_ATAMPDET_EMPGD` w pamięci OTP Secure Engine.
 
 #### 9. Trwałe Zerowanie Pamięci i Autodestrukcja Kodu Flash (Flash Code Zeroization) — `[AKTYWNE - 100% (Tryb Deweloperski 50%)]`
-* **Opis sprzętowy:** Możliwość permanentnego, fizycznego wykasowania kodu źródłowego programu z pamięci Flash oraz danych krypto, uniemożliwiająca rozruch i inżynierię wsteczną (bricking), z jednoczesnym utrwaleniem audytowej Czarnej Skrzynki.
-* **Stan w projekcie:** **`[AKTYWNE - 100% (Tryb Deweloperski 50%)]`**. Zaimplementowano funkcję `tamper_manager_self_destruct_ram()` umieszczoną w pamięci SRAM (`.ram_code`), która po przekroczeniu progu kasuje obszar NVM3 oraz strona po stronie cały kod programu od adresu `0x08000000` (strona 0 z wektorem resetu). Urządzenie zostaje trwale uceglone. Przed skasowaniem kodu, rekord audytowy `tamper_blackbox_t` jest trwale wypalany pod adresem `0x0817E000` (nienaruszanym podczas zerowania kodu). W kodzie wprowadzono przełącznik bezpieczeństwa `#define TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT 0` (domyślny tryb deweloperski 50% symulujący zerowanie kodu bez uceglenia; ustawienie flagi na `1` aktywuje pełne fizyczne wymazanie 100%).
+* **Opis sprzętowy:** Możliwość permanentnego, fizycznego wykasowania kodu źródłowego programu z pamięci Flash oraz danych krypto, uniemożliwiająca rozruch i inżynierię wsteczną (bricking), z jednoczesnym utrwaleniem zaszyfrowanego logu zdarzeń.
+* **Stan w projekcie:** **`[AKTYWNE - 100% (Tryb Deweloperski 50%)]`**. Każde zdarzenie trafia do zaszyfrowanego logu na stronie User Data `0x0FE00000` (zdarzenie przekraczające próg z flagą WIPE), a następnie Secure Engine wykonuje `sl_se_erase_device()`: kasuje i weryfikuje całą pamięć Flash (kod Secure i Non-Secure, NVM3) oraz RAM. Strona User Data (log tamperów) pozostaje. Jeśli SE odmówi, awaryjnie działa funkcja RAM `tamper_manager_self_destruct_ram()` (kasowanie strona po stronie). Przełącznik: opcja CMake `KEYFIRMWARE_TAMPER_LIVE_WIPE` (`set TAMPER_LIVE_WIPE=ON` przed `flashbat\compile.bat`) ustawia `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT=1`; domyślnie `0` = tryb deweloperski (kasowane tylko NVM3, kod zostaje). Szczegóły (EN): [antitamper.md](antitamper.md).
 
 #### 10. Bezpieczny Rozruch z Weryfikacją Podpisu (Secure Boot z RTSL) — `[NIEWYKORZYSTANE]`
 * **Opis sprzętowy:** Weryfikacja kryptograficznego podpisu asymetrycznego każdego wgrywanego obrazu firmware'u przez bootloader w pamięci ROM koprocesora HSE, wraz ze sprzętową blokadą cofania wersji (Anti-Rollback).
-* **Stan w projekcie:** **`[NIEWYKORZYSTANE]`**. Klucze deweloperskie Seeed XIAO MG24 mają obecnie wyłączoną weryfikację podpisu bootloadera, co pozwala programistom na swobodne wgrywanie nowego kodu przez skrypt `xiao_mg24_flash.bat` bez konieczności każdorazowego certyfikowania binarnego obrazu kluczem produkcyjnym producenta.
+* **Stan w projekcie:** **`[NIEWYKORZYSTANE]`**. Klucze deweloperskie Seeed XIAO MG24 mają obecnie wyłączoną weryfikację podpisu bootloadera, co pozwala programistom na swobodne wgrywanie nowego kodu przez skrypty `flashbat\flash.bat` / `xiao_mg24_flash.py` bez konieczności każdorazowego certyfikowania binarnego obrazu kluczem produkcyjnym producenta.
 
 #### 11. Kryptograficzna Blokada Debugera (Secure Debug with Lock/Unlock) — `[ZAIMPLEMENTOWANE - włączane w provisioningu]`
 * **Opis sprzętowy:** Trwałe zablokowanie magistrali SWD/JTAG z możliwością bezpiecznego, kryptograficznego odblokowania jej wyłącznie tokenem podpisanym kluczem Command Key producenta.
@@ -101,9 +101,9 @@ flowchart TD
 * **Stan w projekcie:** **`[ZAIMPLEMENTOWANE]`**, aktywowane opcjonalnie (`keyadmin/scripts/provision_dongle.py <dni> <użytkownicy> --lock`). Płytki deweloperskie pozostają otwarte, dopóki blokada nie zostanie nałożona.
   * **Firmware (strefa Secure):** [`sec_debug_lock.c`](../../../KeyFirmware/src/secure/sec_debug_lock.c) wywołuje SE Manager: `sl_se_init_otp_key(IMMUTABLE_AUTH)` (klucz publiczny wkompilowany w [`debug_command_pubkey.h`](../../../KeyFirmware/src/secure/debug_command_pubkey.h), nigdy nie przyjmowany z hosta), `sl_se_enable_secure_debug()`, `sl_se_apply_debug_lock()`, `sl_se_get_challenge()`, `sl_se_open_debug()`. Bramki NSC kopiują token do pamięci Secure przed weryfikacją.
   * **Protokół (plaintext, oba warianty firmware):** `0x60` STATUS, `0x61` LOCK (jednokierunkowy, idempotentny), `0x62` CHALLENGE, `0x63` UNLOCK (token 220 B weryfikowany przez Secure Engine: numer seryjny + challenge + podpis Command Key). Odblokowanie trwa do najbliższego resetu.
-  * **Host:** `keyadmin/secure_debug/` (budowa certyfikatu dostępu i tokenu), `keyadmin/scripts/secure_debug_lock.py` (`status`/`lock`/`unlock`/`protect`), menu konsoli admina. Command Key (jeden dla całego produktu, obecnie deweloperski) leży w `keyadmin/keys/debug_command_key.pem`, a dane każdego klucza USB w `keyadmin/keys/secure_debug/devices/device_<numer seryjny SE>/`.
+  * **Host:** `keyadmin/secure_debug/`, `keyadmin/scripts/secure_debug_lock.py` (`status`/`lock`/`unlock`/`protect`), menu konsoli admina. **Jedynym sekretem jest Command Key** (jeden dla całego produktu, obecnie deweloperski): `keyadmin/keys/debug_command_key.pem`. Przy każdym odblokowaniu keyadmin buduje z niego w pamięci certyfikat dostępu i token (jednorazowy klucz certyfikatu), wysyła token i niczego z tego nie zapisuje. Challenge nie jest rolowany. W `keyadmin/keys/secure_debug/devices/device_<numer seryjny SE>/` leży tylko `device.json` (historia operacji keyadmin: STATUS/LOCK/UNLOCK) i zrzut logu tamperów `userdata_dump.bin`.
   * **Ochrona egzemplarzy deweloperskich:** numery seryjne z `keyadmin/keys/secure_debug/protected_devices.json` nigdy nie zostaną zablokowane przez narzędzia keyadmin (CLI, menu, `provision_dongle.py ... --lock`).
-  * **Device Erase pozostaje włączony** (`disabledeviceerase` NIE jest wykonywane) — pełne wymazanie nadal odblokowuje port, ale kasuje cały Flash z licencją i Czarną Skrzynką.
+  * **Device Erase pozostaje włączony** (`disabledeviceerase` NIE jest wykonywane) — pełne wymazanie nadal odblokowuje port, ale kasuje cały Flash z licencją (strona User Data z logiem tamperów zostaje).
 
 #### 12. Sprzętowa Poświadczalność Fabryczna Silicon Labs (Secure Attestation) — `[NIEWYKORZYSTANE]`
 * **Opis sprzętowy:** Weryfikacja fabrycznego łańcucha certyfikatów i klucza wsadowego wstrzykniętego przez Silicon Labs na etapie produkcji krzemu.
@@ -132,11 +132,11 @@ flowchart TD
 * **Reakcja Oprogramowania Układowego (Firmware):**
   * Procedura obsługi przerwania (`tamper1_callback` / `tamper2_callback`) ustawia flagę przerwaniową, która w pętli procesowej wywołuje `tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1/PIN2, "...")`.
   * Centralny menedżer inkrementuje liczniki naruszeń, wysyła alert przez `send_log()`, uruchamia 1-sekundowy nieblokujący impuls diody LED (`sl_led_led`) oraz nadzoruje próg autodestrukcji (próg 3 zdarzeń).
-  * Stan zdarzeń sabotażowych jest raportowany do aplikacji Windows poleceniem `MSG_SYS_HEALTH` (`TamperEvents:X, Temp:Y.ZC, BlackBox:ARMED`).
+  * Stan zdarzeń sabotażowych jest raportowany do aplikacji Windows poleceniem `MSG_SYS_HEALTH` (`TamperEvents:X, Temp:Y.ZC, TamperLog:N`, N = liczba wpisów w trwałym logu).
 
 ---
 
-### 2.3 Scentralizowany Menedżer Sabotażu (TamperManager), Czarna Skrzynka i Autodestrukcja Kodu Flash — `[AKTYWNE - 100%]`
+### 2.3 Scentralizowany Menedżer Sabotażu (TamperManager), zaszyfrowany log i Autodestrukcja Kodu Flash — `[AKTYWNE - 100%]`
 
 W oprogramowaniu `KeyFirmware` zaimplementowano scentralizowaną klasę i moduł zarządzania wszystkimi incydentami bezpieczeństwa ([`tamper_manager.h`](../../../KeyFirmware/src/core/tamper_manager.h) oraz [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c)). Wszystkie rozproszone dotąd punkty detekcji fizycznej, środowiskowej i logicznej podlegają jednolitej ewidencji, telemetrii i automatycznej reakcji obronnej.
 
@@ -144,15 +144,15 @@ W oprogramowaniu `KeyFirmware` zaimplementowano scentralizowaną klasę i moduł
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                      FIZYCZNA PAMIĘĆ FLASH EFR32MG24 (1536 KB)                   │
 ├──────────────────────────────────────┬──────────────────────┬────────────────────┤
-│   KOD ŹRÓDŁOWY / FIRMWARE (Aplikacja)│      OBSZAR NVM3     │ CZARNA SKRZYNKA    │
-│    (0x08000000 do 0x0817C000)        │ (0x08160000-0x17E000)│ (0x0817E000-0x180) │
+│   KOD ŹRÓDŁOWY / FIRMWARE (Aplikacja)│      OBSZAR NVM3     │ LOG TAMPERÓW (AES) │
+│    (0x08000000 do 0x08148000)        │ (0x08148000-0x17E000)│ UserData 0x0FE00000│
 │                                      │                      │                    │
-│ - Wektory przerwań / Reset vector    │ - Licencje, certyfik.│ - Magiczny nagłówek│
-│ - Algorytmy i funkcja główna         │ - Sesje użytkowników │ - Liczniki ataków  │
-│ - Sekcje .text, .rodata              │ - Dane kryptograf.   │ - Typ ataku & Meta │
-│                                      │                      │ - Odczyty V i Temp │
+│ - Wektory przerwań / Reset vector    │ - Licencje, certyfik.│ - 64 wpisy x 16 B  │
+│ - Algorytmy i funkcja główna         │ - Klucz tożsamości   │ - Typ, licznik     │
+│ - Sekcje .text, .rodata              │   (owinięty PUF)     │ - Flaga WIPE, czas │
+│                                      │                      │ - Temperatura      │
 ├──────────────────────────────────────┴──────────────────────┼────────────────────┤
-│                  CAŁKOWICIE KASOWANE W RAM:                 │    POZOSTAJE DO    │
+│     KASOWANE PRZEZ SE (sl_se_erase_device) + RAM:           │    POZOSTAJE DO    │
 │              - Kod programu wymazany (0xFF)                 │     EKSTRAKCJI     │
 │              - Urządzenie permanentnie uceglone             │    ŚLEDCZEJ PO     │
 │              - Niemożliwy reverse-engineering               │     SWD / J-LINK   │
@@ -180,44 +180,31 @@ Gdy dowolny moduł firmware wykryje anomalię, wywołuje centralną metodę:
 `tamper_manager_detected(tamper_type_t type, const char *metadata)`.
 1. **Ewidencja:** Zwiększa dedykowany licznik danego typu `tamper_counts[type]++` oraz globalny licznik `tamper_event_count++`.
 2. **Sygnalizacja Diodą LED:** Załącza diodę LED (`sl_led_turn_on(&sl_led_led)`) i uruchamia nieblokujący timer sprzętowy (`sl_sleeptimer_restart_timer_ms(&tamper_led_timer, 1000, ...)`), który po dokładnie **1 sekundzie** wyłącza diodę. Stan alarmu jest chroniony flagą `tamper_led_active`, uniemożliwiającą zgaszenie alertu przez rutynowe heartbeaty komunikacyjne.
-3. **Telemetria:** Formatuje i emituje ustrukturyzowany komunikat dziennika zdarzeń przez `send_log()`:
-   `"SECURITY ALERT: Tamper 'Nazwa' (#Total, total: Typ/Próg) [Metadane]"`.
+3. **Telemetria:** Formatuje komunikat `"SECURITY ALERT: Tamper 'Nazwa' (#Total, total: Typ/Próg) [Metadane]"`. **Uwaga:** menedżer działa w świecie Secure, gdzie `send_log()` jest pustą zaślepką (`sec_main.c`), więc ten komunikat nie trafia na USB. Host widzi tylko logi z części Non-Secure (piny PC5/PC6), odpowiedzi błędów VRX oraz `MSG_SYS_HEALTH`.
 4. **Weryfikacja Progu:** Sprawdza, czy `tamper_counts[type] >= tamper_thresholds[type]`. W razie osiągnięcia limitu następuje natychmiastowe uruchomienie procedury autodestrukcji `tamper_manager_trigger_wipe()`.
 
-#### 3. Zapis Trwałej Czarnej Skrzynki (Forensic Black Box w Pamięci Flash)
-Zanim jakikolwiek kod zostanie naruszony, menedżer przygotowuje strukturę `tamper_blackbox_t` (dokładnie 192 bajty, wyrównane do 4 bajtów):
-```c
-typedef struct __attribute__((packed, aligned(4))) {
-    uint32_t magic;                          // Sygnatura poprawności: 0x54414D50 ("TAMP")
-    uint32_t timestamp;                      // Czas uniksowy z RTC w momencie ataku
-    uint32_t uptime_seconds;                 // Czas pracy urządzenia od włączenia zasilania
-    uint8_t  triggering_tamper_type;         // Typ tampera, który wymusił autodestrukcję
-    uint8_t  reserved[3];                    // Wyrównanie do 4 bajtów
-    uint32_t tamper_counts[10];              // Statystyka zdarzeń dla wszystkich 10 typów
-    int16_t  temperature_x10;                // Odczyt temperatury (°C * 10)
-    uint16_t voltage_mv;                     // Odczyt napięcia zasilania (mV)
-    char     incident_description[128];      // Czytelny opis incydentu i metadane
-    uint32_t crc32;                          // Suma kontrolna IEEE 802.3
-} tamper_blackbox_t;
-```
-Rekord ten zostaje utrwalony na dedykowanej stronie pamięci Flash pod adresem **`0x0817E000`** (ostatnia strona 8 KB fizycznej pamięci 1536 KB, znajdująca się poza zakresem kodu i NVM3) za pomocą kontrolera MSC (`MSC_ErasePage()` i `MSC_WriteWord()`).
+#### 3. Zaszyfrowany log zdarzeń (strona User Data)
+Każde zdarzenie (a nie tylko to, które przekroczyło próg) jest zapisywane jako 16-bajtowy wpis `tamper_log_entry_t` na stronie **User Data `0x0FE00000`** (1 KB, poza główną pamięcią Flash; nie kasuje jej ani device erase SE, ani flashowanie). Strona mieści **64 wpisy**. Wpis zawiera typ, licznik, flagę WIPE (to zdarzenie uruchomiło kasowanie), czas RTC, uptime, temperaturę i CRC-16. Przed zapisem Secure Engine szyfruje go kluczem AES-128 (**Tamper Log Key**, `sl_se_aes_crypt_ecb`), więc po wipe (port debug otwarty) zrzut strony pokazuje tylko szyfrogram. Klucz jest wkompilowany w obraz Secure (`KeyFirmware/src/core/tamper_log_key.h`, kasowany przez wipe); kopia fabryczna: `KeySec/keyadmin/keys/tamper_log_key.bin` (generator: `keyadmin/scripts/generate_tamper_log_key.py`). Dawny rekord Czarnej Skrzynki (`tamper_blackbox_t`, 192 B) został usunięty, bo dublował log. Szczegóły (EN): [antitamper.md](antitamper.md#persistent-tamper-log-user-data-page).
 
-#### 4. Autodestrukcja Kodu Źródłowego z Pamięci RAM (Flash Code Zeroization)
+#### 4. Autodestrukcja: Device Erase Secure Engine, awaryjnie z Pamięci RAM (Flash Code Zeroization)
+Podstawowa ścieżka (`TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT=1`): `sl_se_erase_device()` — Secure Engine kasuje i weryfikuje całą pamięć Flash i RAM niezależnie od podziału TrustZone, resetując też blokadę debug (pusty układ można ponownie zaprogramować). Poniższa funkcja RAM działa tylko, gdy SE odmówi (np. po `sl_se_disable_device_erase`).
+
 W architekturze ARM Cortex-M33 rdzeń nie może wymazywać stron Flash, z których aktualnie wykonuje instrukcje. Z tego powodu procedura wymazująca została zaimplementowana jako funkcja RAM:
 `SL_RAMFUNC_DEFINITION_BEGIN void tamper_manager_self_destruct_ram(void)`:
 1. **Alokacja w SRAM:** Funkcja zostaje skompilowana do sekcji `.ram_code` (adres w pamięci SRAM: `0x2003534c`). Flaga linkera `-utamper_manager_self_destruct_ram` gwarantuje, że optymalizator `--gc-sections` nie usunie procedury z pliku wykonywalnego.
 2. **Brak zależności od Flash:** Procedura bezpośrednio odblokowuje rejestr kontrolera pamięci (`MSC->LOCK = MSC_LOCK_LOCKKEY_UNLOCK;`), nie wykonując żadnych skoków do pamięci Flash.
-3. **Fizyczne Wymazanie Kodu:** W pętli kasuje strona po stronie całą przestrzeń kodu aplikacji od strony 0 (`0x08000000`) do `0x0817C000` (łącznie 191 stron po 8 KB = 1528 KB). Po wymazaniu strony 0 wektor resetu i tablica wektorów przerwań zostają wyzerowane (`0xFFFFFFFF`), trwale uniemożliwiając rozruch i reverse-engineering. Strona Czarnej Skrzynki `0x0817E000` pozostaje nienaruszona.
+3. **Fizyczne Wymazanie Kodu:** W pętli kasuje strona po stronie całą główną pamięć Flash od strony 0 (`0x08000000`) do końca (`0x08180000`, 192 strony po 8 KB), łącznie z NVM3. Po wymazaniu strony 0 wektor resetu zostaje wyczyszczony (`0xFFFFFFFF`). Log tamperów leży na stronie User Data, poza tym zakresem. Niezweryfikowane: czy kontroler MSC skonfigurowany jako Non-Secure skasuje strony świata Secure.
 4. **Zatrzymanie Rdzenia:** Procesor przechodzi w nieskończoną pętlę uśpienia `while(1) { __WFI(); }`.
 
 #### 5. Instrukcja Odczytu Logów po Ucegleniu (Forensic Extraction Guide)
 Gdy urządzenie utraciło oprogramowanie i nie komunikuje się przez port szeregowy, logi odczytuje się przez magistralę SWD programatora:
 ```bash
-# Zrzut 512 bajtów Czarnej Skrzynki do pliku binarnego:
-commander readmem --range 0x0817E000:+512 -d EFR32MG24B220F1536IM48 --outfile blackbox_dump.bin
+# Odczyt i odszyfrowanie logu przez pyOCD (wymaga keyadmin/keys/tamper_log_key.bin):
+python keyadmin/scripts/read_tamper_log.py
 
-# Bezpośredni podgląd pamięci Flash w konsoli (widoczna sygnatura TAMP, parametry i opis incydentu):
-commander readmem --range 0x0817E000:+256 -d EFR32MG24B220F1536IM48
+# Alternatywnie zrzut strony User Data (1 KB) przez Commandera, potem odszyfrowanie:
+commander readmem --range 0x0FE00000:+1024 -d EFR32MG24B220F1536IM48 --outfile userdata_dump.bin
+python keyadmin/scripts/read_tamper_log.py --file userdata_dump.bin
 ```
 
 ---
@@ -226,14 +213,14 @@ commander readmem --range 0x0817E000:+256 -d EFR32MG24B220F1536IM48
 
 #### Protokół Transportowy i Ramkowanie Danych
 * Komunikacja z kluczem USB odbywa się przez wirtualny port szeregowy (VCOM / USB CDC) z prędkością 115200 bps.
-* Na warstwie binarnej zastosowano protokół **TinyFrame** ([`KeyFirmware/src/TinyFrame.c`](../../../KeyFirmware/src/TinyFrame.c) oraz [`KeySec/core/transport.py`](../../core/transport.py)), zapewniający podział na ramki, kontrolę spójności sumami CRC16/CRC32 oraz trasowanie zapytań RPC.
+* Na warstwie binarnej zastosowano protokół **TinyFrame** ([`KeyFirmware/src/core/TinyFrame.c`](../../../KeyFirmware/src/core/TinyFrame.c) oraz [`KeySec/keycomm/core/transport.py`](../../keycomm/core/transport.py)), zapewniający podział na ramki, kontrolę spójności sumami CRC16/CRC32 oraz trasowanie zapytań RPC.
 
 #### Silnik Kryptograficzny i Algorytmy
-* **Po stronie mikrokontrolera:** Oficjalne API **Silicon Labs PSA Crypto** ([`KeyFirmware/src/crypto/session_ecdhe.c`](../../../KeyFirmware/src/crypto/session_ecdhe.c), [`KeyFirmware/src/crypto/auth_manager.c`](../../../KeyFirmware/src/crypto/auth_manager.c)), bezpośrednio sprzężone ze sprzętowym akceleratorem kryptograficznym Secure Vault High.
-* **Po stronie aplikacji Windows:** Standardowa, audytowana biblioteka `cryptography.hazmat` ([`KeySec/core/secure_channel.py`](../../core/secure_channel.py)).
+* **Po stronie mikrokontrolera:** Oficjalne API **Silicon Labs PSA Crypto** ([`KeyFirmware/src/core/crypto/session_ecdhe.c`](../../../KeyFirmware/src/core/crypto/session_ecdhe.c), [`KeyFirmware/src/core/crypto/auth_manager.c`](../../../KeyFirmware/src/core/crypto/auth_manager.c), szyfrowanie odpowiedzi i błędów w [`router_common.c`](../../../KeyFirmware/src/core/router_common.c)), bezpośrednio sprzężone ze sprzętowym akceleratorem kryptograficznym Secure Vault High.
+* **Po stronie aplikacji Windows:** Standardowa, audytowana biblioteka `cryptography.hazmat` ([`KeySec/keycomm/core/secure_channel.py`](../../keycomm/core/secure_channel.py), obsługa błędów i ponowny handshake w [`protocol.py`](../../keycomm/core/protocol.py)).
 * **Negocjacja Klucza Sesji (ECDHE - Elliptic-Curve Diffie-Hellman Ephemeral):**
   * Krzywa eliptyczna: NIST P-256 (`PSA_ECC_FAMILY_SECP_R1` / `ec.SECP256R1`).
-  * Gwarancja poufności w przód (Perfect Forward Secrecy - PFS): Przy każdym podłączeniu dongle'a lub uruchomieniu aplikacji generowana jest świeża, tymczasowa para kluczy asymetrycznych po stronie PC (`pc_priv`) oraz świeży 32-bajtowy kryptograficzny nonce losowy (`pc_nonce`). Mikrokontroler generuje własną parę efemeryczną w pamięci RAM (`psa_generate_key`).
+  * Gwarancja poufności w przód (Perfect Forward Secrecy - PFS): Przy każdym nawiązaniu sesji (podłączenie dongle'a, uruchomienie aplikacji, ponowny handshake po błędzie sesji) generowana jest świeża, tymczasowa para kluczy asymetrycznych po stronie PC (`pc_priv`) oraz świeży 32-bajtowy kryptograficzny nonce losowy (`pc_nonce`). Mikrokontroler generuje własną parę efemeryczną w pamięci RAM (`psa_generate_key`).
   * Operacja uzgadniania klucza oblicza 32-bajtowy sekret współdzielony (Shared Secret) w sprzętowym koprocesorze (`psa_raw_key_agreement` na MCU, `pc_priv.exchange` na PC).
   * Klucze efemeryczne są bezpowrotnie niszczone w pamięci RAM natychmiast po wyprowadzeniu kluczy sesyjnych.
 * **Wyprowadzanie Dwukierunkowych Kluczy Sesyjnych (HKDF-SHA256):**
@@ -246,30 +233,36 @@ commander readmem --range 0x0817E000:+256 -d EFR32MG24B220F1536IM48
     $$\text{Nonce} = [\text{4 bajty: licznik monotoniczny uint32\_le}] \,||\, [\text{1 bajt: identyfikator kierunku}] \,||\, [\text{7 bajtów: zera}]$$
     * Bajt kierunku przyjmuje wartość `0x01` dla transmisji PC $\to$ Dongle oraz `0x02` dla transmisji Dongle $\to$ PC.
   * Optymalizacja pasma UART: Na magistralę przesyłany jest jedynie 4-bajtowy licznik, szyfrogram oraz 16-bajtowy tag uwierzytelniający.
-  * Ochrona anty-replay (Monotonic Counter Check): Zarówno PC ([`SecureChannel.decrypt_payload()`](../../core/secure_channel.py#L162-L184)), jak i mikrokontroler ([`session_decrypt_payload()`](../../../KeyFirmware/src/crypto/session_ecdhe.c)) weryfikują monotoniczność licznika. Otrzymanie pakietu z licznikiem $\le$ ostatnio zarejestrowany natychmiast zrywa transmisję jako atak powtórzeniowy.
+  * Dane uwierzytelniane (AAD): typ wiadomości TinyFrame leży poza szyfrogramem, więc jest dołączany jako AAD. Zapytanie: AAD = `[typ komendy]`. Odpowiedź: AAD = `[typ komendy, MSG_OK lub MSG_ERR]`. Podmiana numeru komendy lub statusu OK/ERR po drodze psuje tag i wiadomość zostaje odrzucona.
+  * Błędy po nawiązaniu sesji (`License expired`, `ERR: Decrypt Failed`, `ERR: Payload exceeds buffer`) są szyfrowane jak zwykłe odpowiedzi. Jawnie idą tylko `ERR: Secure Session Not Active` (brak sesji, więc brak klucza) i `ERR: Encrypt Failed`; keycomm traktuje oba jako sygnał do nowego handshake.
+  * Ochrona anty-replay (Monotonic Counter Check): Zarówno PC ([`SecureChannel.decrypt_payload()`](../../keycomm/core/secure_channel.py)), jak i mikrokontroler ([`session_decrypt_payload()`](../../../KeyFirmware/src/core/crypto/session_ecdhe.c)) weryfikują monotoniczność licznika. Pakiet z licznikiem $\le$ ostatnio zarejestrowanemu jest odrzucany jako atak powtórzeniowy (dongle odpowiada zaszyfrowanym `ERR: Decrypt Failed`, a keycomm robi nowy handshake).
 
 ---
 
-### 2.5 Unikalne Zestawy Kluczy per Klient i Infrastruktura PKI — `[AKTYWNE]`
+### 2.5 Infrastruktura PKI i Klucze Urządzenia — `[AKTYWNE]`
 
 #### Architektura Kluczy Fabrycznych i Sprzętowych
-* Źródło dokumentacji: [`KeySec/docs/security/cryptography_flow_and_keys.md`](../../docs/security/cryptography_flow_and_keys.md).
+* Pełny opis wszystkich kluczy (gdzie powstają, gdzie leżą, do czego służą): [klucze_i_provisioning.md](klucze_i_provisioning.md). Starszy `cryptography_flow_and_keys.md` opisuje plan, nie obecny kod.
 * Implementacja w skryptach: [`keyadmin/scripts/generate_root_ca.py`](../../keyadmin/scripts/generate_root_ca.py) oraz [`keyadmin/scripts/provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py).
 
 | Nazwa Klucza / Certyfikatu | Miejsce Generowania | Miejsce Przechowywania | Rola w Systemie i Cel Ochrony | Status |
 |---|---|---|---|:---:|
-| **Root CA Private Key** (`root_ca_key.pem`) | Izolowany komputer producenta ([`generate_root_ca.py`](../../scripts/generate_root_ca.py)) | Bezpieczny magazyn offline. **Nigdy nie trafia do klienta.** | Podpisywanie certyfikatów tożsamości dla nowo produkowanych kluczy sprzętowych (Provisioning). | **`[AKTYWNE]`** |
-| **Root CA Public Key** (`root_ca_pub.pem`) | Wyprowadzony z klucza prywatnego Root CA | Wbudowany bezpośrednio w plik wykonywalny i paczkę aplikacji Compass | Weryfikacja autentyczności podłączonego klucza sprzętowego przez aplikację. | **`[AKTYWNE]`** |
-| **Sprzętowy Klucz Główny PUF (Root Key)** | Struktura krzemowa EFR32MG24 (losowy rozkład ładunków SRAM przy starcie) | Rejestr sprzętowy Secure Engine, niedostępny dla rdzenia Cortex-M33 | Używany przez sprzęt do szyfrowania i bezpiecznego owijania (wrapping) pozostałych kluczy we Flashu. | **`[AKTYWNE]`** |
-| **Klucz Tożsamości Urządzenia (Identity Key)** | Generowany wewnątrz Secure Vault na etapie produkcji ([`AdminApi.provision_identity()`](../../keyadmin/scripts/provision_dongle.py)) | Pamięć NVM3 mikrokontrolera pod ochroną PUF (`IDENTITY_KEY_ID = 0x00000001`). Klucz prywatny nigdy nie opuszcza krzemu w postaci jawnej. | Unikalna tożsamość urządzenia. Służy wyłącznie do podpisywania wyzwania kryptograficznego podczas nawiązywania połączenia USB. | **`[AKTYWNE]`** |
-| **Certyfikat Urządzenia (Device Certificate)** | Podpisany przez Root CA w fazie produkcji ([`provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py)) | Trwała pamięć NVM3 mikrokontrolera ([`security_nvm_save_certificate()`](../../../KeyFirmware/src/rpc_router.c#L263)) | Wiąże dany egzemplarz mikrokontrolera z fabryką producenta. | **`[AKTYWNE]`** |
+| **Root CA Private Key** (`root_ca_key.pem`) | Komputer producenta ([`generate_root_ca.py`](../../keyadmin/scripts/generate_root_ca.py)) | `keyadmin/keys/root_ca_key.pem` (obecnie klucz deweloperski w git; produkcyjny ma leżeć offline). **Nigdy nie trafia do klienta.** | Podpisywanie certyfikatów tożsamości dla nowo produkowanych kluczy sprzętowych (Provisioning). | **`[AKTYWNE]`** |
+| **Root CA Public Key** (`root_ca_pub.pem`) | Wyprowadzony z klucza prywatnego Root CA | Plik `root_ca_pub.pem` dostarczany z Compass (`keys/` lub `keycomm/keys/` obok exe; wyszukiwanie w `compass/app/level_x/xrouter.py`) | Weryfikacja autentyczności podłączonego klucza sprzętowego przez aplikację. | **`[AKTYWNE]`** |
+| **Sprzętowy Klucz Główny PUF (Root Key)** | Struktura krzemowa EFR32MG24 (losowy rozkład ładunków SRAM przy starcie) | Rejestr sprzętowy Secure Engine, niedostępny dla rdzenia Cortex-M33 | Sprzęt owija nim inne klucze we Flashu. W projekcie: klucz tożsamości urządzenia. | **`[AKTYWNE]`** |
+| **Klucz Tożsamości Urządzenia (Identity Key)** | Generowany wewnątrz Secure Vault na etapie produkcji ([`AdminApi.provision_identity()`](../../keyadmin/scripts/provision_dongle.py)) | Pamięć NVM3 świata Secure (`IDENTITY_KEY_ID = 0x81001`), **owinięty kluczem PUF** (`SL_PSA_KEY_LOCATION_WRAPPED`). Firmware nigdy go nie wysyła. | Unikalna tożsamość urządzenia. Służy wyłącznie do podpisywania wyzwania kryptograficznego podczas nawiązywania połączenia USB. Owinięcie PUF-em sprawia, że kopia flasha na innym chipie nie przejdzie handshake (ochrona przed klonowaniem). | **`[AKTYWNE]`** (dongle provisionowane od 2026-10-30) |
+| **Klucz Hosta (Host Key)** | [`generate_host_key.py`](../../keyadmin/scripts/generate_host_key.py) | Prywatny: pole `XRouter._HOST_KEY` w Compass + kopia `keyadmin/keys/host_key.pem`; publiczny: [`host_auth_pubkey.h`](../../../KeyFirmware/src/core/crypto/host_auth_pubkey.h) w firmware | Podpis handshake: dongle otwiera sesję tylko dla Compass i keyadmin. | **`[AKTYWNE]`** (nietestowane na sprzęcie) |
+| **Certyfikat Urządzenia (Device Certificate)** | Podpisany przez Root CA w fazie produkcji ([`provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py)) | Trwała pamięć NVM3 mikrokontrolera ([`security_nvm.c`](../../../KeyFirmware/src/core/security_nvm.c)); to sam podpis Root CA nad kluczem publicznym tożsamości | Wiąże dany egzemplarz mikrokontrolera z fabryką producenta. | **`[AKTYWNE]`** |
+| **Command Key** (`debug_command_key.pem` + publiczny w OTP) | [`generate_debug_command_key.py`](../../keyadmin/scripts/generate_debug_command_key.py) | Prywatny: `keyadmin/keys/`; publiczny: wkompilowany w firmware i zapisywany w OTP przy LOCK | Jedyny sekret do odblokowania SWD zablokowanych dongli (patrz 2.1 #11). | **`[AKTYWNE]`** |
+| **Tamper Log Key** (AES-128) | [`generate_tamper_log_key.py`](../../keyadmin/scripts/generate_tamper_log_key.py) | `keyadmin/keys/tamper_log_key.bin` + wkompilowany w obraz Secure (`tamper_log_key.h`) | Szyfrowanie wpisów logu tamperów na stronie User Data (patrz 2.3). Bez PUF, bo log odszyfrowujemy na PC. | **`[AKTYWNE]`** |
 
-#### Przebieg Wzajemnego Uwierzytelniania (Ochrona przed Klonowaniem i Atakami Man-in-the-Middle)
-1. Aplikacja wysyła zapytanie powitalne [`MSG_HANDSHAKE_INIT`](../../core/secure_channel.py#L45) zawierające klucz efemeryczny PC oraz losowy nonce `pc_nonce`.
-2. Mikrokontroler generuje efemeryczną parę kluczy, łączy `pc_nonce || mcu_eph_pub`, oblicza skrót SHA-256 i podpisuje go kryptograficznie (ECDSA) swoim ukrytym w krzemie kluczem tożsamości ([`auth_manager_sign_digest`](../../../KeyFirmware/src/crypto/session_ecdhe.c#L164)).
+#### Przebieg Wzajemnego Uwierzytelniania (Ochrona przed Podróbką, Obcym Klientem i Atakami Man-in-the-Middle)
+1. Aplikacja wysyła zapytanie powitalne [`MSG_HANDSHAKE_INIT`](../../keycomm/core/secure_channel.py) zawierające klucz efemeryczny PC, losowy nonce `pc_nonce` oraz podpis ECDSA kluczem hosta nad `KEYSEC_HOST_AUTH_V1 || pc_pub || pc_nonce`. Klucz hosta jest polem `XRouter._HOST_KEY` w [`xrouter.py`](../../../compass/app/level_x/xrouter.py) (keyadmin używa kopii `keyadmin/keys/host_key.pem`). Mikrokontroler sprawdza podpis kluczem publicznym z [`host_auth_pubkey.h`](../../../KeyFirmware/src/core/crypto/host_auth_pubkey.h); bez zgodnego podpisu odpowiada `ERR: Host not authenticated` i nie otwiera sesji. Odtworzenie nagranego zapytania nic nie daje, bo klucze sesji wymagają prywatnego klucza efemerycznego PC.
+2. Mikrokontroler generuje efemeryczną parę kluczy, łączy `pc_nonce || mcu_eph_pub`, oblicza skrót SHA-256 i podpisuje go kryptograficznie (ECDSA) swoim kluczem tożsamości owiniętym PUF-em ([`auth_manager_sign_digest`](../../../KeyFirmware/src/core/crypto/auth_manager.c)).
 3. Mikrokontroler zwraca swój klucz efemeryczny, publiczny klucz tożsamości, podpis wyzwania oraz certyfikat podpisany przez Root CA.
-4. **Weryfikacja Krok 1 (PC):** Aplikacja Compass weryfikuje podpis na certyfikacie dongle'a za pomocą wbudowanego klucza publicznego `root_ca_pub.pem` ([`SecureChannel.init_handshake()`](../../core/secure_channel.py#L76-L86)). Fałszywy klucz USB nie przejdzie tego testu.
-5. **Weryfikacja Krok 2 (PC):** Aplikacja sprawdza podpis wyzwania za pomocą zweryfikowanego klucza tożsamości mikrokontrolera ([`SecureChannel.init_handshake()`](../../core/secure_channel.py#L88-L113)). Uniemożliwia to atak typu replay lub podsłuch i manipulację transmisją przez oprogramowanie trzecie.
+4. **Weryfikacja Krok 1 (PC):** Aplikacja Compass weryfikuje podpis na certyfikacie dongle'a za pomocą klucza publicznego z pliku `root_ca_pub.pem` ([`SecureChannel.init_handshake()`](../../keycomm/core/secure_channel.py)). Fałszywy klucz USB nie przejdzie tego testu.
+5. **Weryfikacja Krok 2 (PC):** Aplikacja sprawdza podpis wyzwania za pomocą zweryfikowanego klucza tożsamości mikrokontrolera ([`SecureChannel.init_handshake()`](../../keycomm/core/secure_channel.py)). Uniemożliwia to atak typu replay lub podsłuch i manipulację transmisją przez oprogramowanie trzecie.
+6. **Ograniczenie klucza hosta:** jest jeden dla wszystkich kopii Compass i leży w exe (chronionym Themidą). Kto go wydobędzie, może podszyć się pod Compass; licencję, limit użytkowników i tokeny VRX nadal egzekwuje sam dongle (świat Secure).
 
 ---
 
@@ -316,32 +309,32 @@ flowchart TD
 
 #### 1. `level_2 / set_safe_space_estimates` — `[AKTYWNE]`
 * **Implementacja Python (fallback):** [`compass/app/level_2/set_safe_space_estimates.py`](../../../compass/app/level_2/set_safe_space_estimates.py)
-* **Kierowanie sprzętowe:** [`compass/app/level_x/set_safe_space_estimates.py`](../../../compass/app/level_x/set_safe_space_estimates.py) $\to$ [`KeySec/logic/safe_space_estimates.py`](../../logic/safe_space_estimates.py) ([`SafeSpaceEstimatesRunner`](../../logic/safe_space_estimates.py#L8))
-* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/logic/safe_space_estimates.c`](../../../KeyFirmware/src/logic/safe_space_estimates.c)
+* **Kierowanie sprzętowe:** [`compass/app/level_x/set_safe_space_estimates.py`](../../../compass/app/level_x/set_safe_space_estimates.py) $\to$ [`KeySec/keycomm/logic/safe_space_estimates.py`](../../keycomm/logic/safe_space_estimates.py) ([`SafeSpaceEstimatesRunner`](../../keycomm/logic/safe_space_estimates.py#L8))
+* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/prod/logic/safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c)
 * **Mechanizm działania:**
-  * Parametry wejściowe uwalniania (`sfsp_FaSSGF`, `sfsp_FaSSIF`, `CsS`, `zS`, `CsI`, `zI`, `tlagS`, `tlagI`) są pakowane w binarną strukturę i wysyłane przez [`MSG_SAFE_SPACE_INIT`](../../logic/safe_space_estimates.py#L50).
-  * Dane punktów uwalniania są strumieniowane w binarnych pakietach po 1491 bajtów ([`MSG_SAFE_SPACE_CHUNK`](../../logic/safe_space_estimates.py#L75)).
-  * Mikrokontroler w bezpiecznym rdzeniu C wylicza szacunki bezpiecznej przestrzeni (safe space), granice zmienności i opóźnienia, po czym zwraca wynik poleceniem [`MSG_SAFE_SPACE_READ`](../../logic/safe_space_estimates.py#L92).
+  * Parametry wejściowe uwalniania (`sfsp_FaSSGF`, `sfsp_FaSSIF`, `CsS`, `zS`, `CsI`, `zI`, `tlagS`, `tlagI`) są pakowane w binarną strukturę i wysyłane przez [`MSG_SAFE_SPACE_INIT`](../../keycomm/logic/safe_space_estimates.py#L50).
+  * Dane punktów uwalniania są strumieniowane w binarnych pakietach po 1491 bajtów ([`MSG_SAFE_SPACE_CHUNK`](../../keycomm/logic/safe_space_estimates.py#L75)).
+  * Mikrokontroler w bezpiecznym rdzeniu C wylicza szacunki bezpiecznej przestrzeni (safe space), granice zmienności i opóźnienia, po czym zwraca wynik poleceniem [`MSG_SAFE_SPACE_READ`](../../keycomm/logic/safe_space_estimates.py#L92).
 
 #### 2. `level_2 / set_safe_space_plots` — `[AKTYWNE]`
 * **Implementacja Python (fallback):** [`compass/app/level_2/set_safe_space_plots.py`](../../../compass/app/level_2/set_safe_space_plots.py)
-* **Kierowanie sprzętowe:** [`compass/app/level_x/set_safe_space_plots.py`](../../../compass/app/level_x/set_safe_space_plots.py) $\to$ [`KeySec/logic/safe_space_plots.py`](../../logic/safe_space_plots.py)
-* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/logic/safe_space_plots.c`](../../../KeyFirmware/src/logic/safe_space_plots.c)
+* **Kierowanie sprzętowe:** [`compass/app/level_x/set_safe_space_plots.py`](../../../compass/app/level_x/set_safe_space_plots.py) $\to$ [`KeySec/keycomm/logic/safe_space_plots.py`](../../keycomm/logic/safe_space_plots.py)
+* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/prod/logic/safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c)
 * **Podział na procedury sprzętowe:**
-  * **Procedura A ([`execute_safe_space_plots_A`](../../logic/safe_space_plots.py#L11)):** Strumieniowanie punktów uwalniania przez `MSG_SSP_A_CHUNK` (`<BffB`). Mikrokontroler agreguje w pamięci C obwiednie minimalne i maksymalne (`min`/`max`) dla mediów FaSSGF oraz FaSSIF.
-  * **Procedura B ([`execute_safe_space_plots_B`](../../logic/safe_space_plots.py#L56)):** Zapytanie `MSG_SSP_B_REQ` (`<BBBB`). Mikrokontroler wylicza logiczny warunek widoczności wewnętrznych granic zmienności na podstawie trybu uwalniania i tolerancji opóźnienia.
-  * **Procedura C ([`execute_safe_space_plots_C`](../../logic/safe_space_plots.py#L67)):** Strumieniowanie danych eksperymentalnych formulacji przez `MSG_SSP_C_CHUNK` (`<BBff`). Mikrokontroler przeprowadza rygorystyczną filtrację rekordów według medium, formulacji i progów czasowych.
+  * **Procedura A ([`execute_safe_space_plots_A`](../../keycomm/logic/safe_space_plots.py#L11)):** Strumieniowanie punktów uwalniania przez `MSG_SSP_A_CHUNK` (`<BffB`). Mikrokontroler agreguje w pamięci C obwiednie minimalne i maksymalne (`min`/`max`) dla mediów FaSSGF oraz FaSSIF.
+  * **Procedura B ([`execute_safe_space_plots_B`](../../keycomm/logic/safe_space_plots.py#L56)):** Zapytanie `MSG_SSP_B_REQ` (`<BBBB`). Mikrokontroler wylicza logiczny warunek widoczności wewnętrznych granic zmienności na podstawie trybu uwalniania i tolerancji opóźnienia.
+  * **Procedura C ([`execute_safe_space_plots_C`](../../keycomm/logic/safe_space_plots.py#L67)):** Strumieniowanie danych eksperymentalnych formulacji przez `MSG_SSP_C_CHUNK` (`<BBff`). Mikrokontroler przeprowadza rygorystyczną filtrację rekordów według medium, formulacji i progów czasowych.
 
 #### 3. `level_2 / Sim_PK_and_GI_table` — `[AKTYWNE]`
 * **Implementacja Python (fallback):** [`compass/app/level_2/Sim_PK_and_GI_table.py`](../../../compass/app/level_2/Sim_PK_and_GI_table.py)
-* **Kierowanie sprzętowe:** [`compass/app/level_x/Sim_PK_and_GI_table.py`](../../../compass/app/level_x/Sim_PK_and_GI_table.py) $\to$ [`KeySec/logic/sim_pk_gi.py`](../../logic/sim_pk_gi.py) ([`SimPkGiRunner`](../../logic/sim_pk_gi.py#L6))
-* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/logic/sim_pk_gi.c`](../../../KeyFirmware/src/logic/sim_pk_gi.c)
+* **Kierowanie sprzętowe:** [`compass/app/level_x/Sim_PK_and_GI_table.py`](../../../compass/app/level_x/Sim_PK_and_GI_table.py) $\to$ [`KeySec/keycomm/logic/sim_pk_gi.py`](../../keycomm/logic/sim_pk_gi.py) ([`SimPkGiRunner`](../../keycomm/logic/sim_pk_gi.py#L6))
+* **Kod C w mikrokontrolerze:** [`KeyFirmware/src/prod/logic/sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c)
 * **Przebieg:** Strumieniowanie macierzy symulacyjnych przewodu pokarmowego i parametrów farmakokinetycznych przez `MSG_SIM_PK_GI_INIT/CHUNK`, przeliczenie danych wewnątrz układu Cortex-M33 i odczyt sformatowanego wyniku przez `MSG_SIM_PK_GI_READ`.
 
 #### 4. Bramki Sprzętowe: Licencja Czasowa oraz Limit Równoczesnych Użytkowników — `[AKTYWNE]`
 Przed wykonaniem jakiejkolwiek procedury matematycznej firmware sprawdza wewnętrzne warunki bezpieczeństwa:
-* **Sprzętowa kontrola licencji czasowej:** Procedura [`security_rtc_check_license()`](../../../KeyFirmware/src/security_rtc.c#L130) weryfikuje bieżący czas uniksowy zliczanego zegara RTC względem okresu zapisanego w NVM3. Blokuje ataki polegające na cofaniu daty w systemie Windows (próba synchronizacji wstecznej jest traktowana jako sabotaż i odrzucana).
-* **Sprzętowy limit aktywnych użytkowników (okno 10-minutowe):** Procedura [`security_users_register_activity()`](../../../KeyFirmware/src/security_users.c#L18) przechowuje w pamięci RAM skróty (hashe) unikalnych sesji użytkowników. Jeśli w ciągu ostatnich 10 minut (600 sekund) liczba aktywnych sesji przekroczy limit `MAX_USERS` (zapisany w zabezpieczonej pamięci NVM3), dongle odmawia wykonania obliczeń i zwraca błąd sprzętowy.
+* **Sprzętowa kontrola licencji czasowej:** Procedura [`security_rtc_check_license()`](../../../KeyFirmware/src/core/security_rtc.c) weryfikuje bieżący czas uniksowy zliczanego zegara RTC względem okresu zapisanego w NVM3. Blokuje ataki polegające na cofaniu daty w systemie Windows (próba synchronizacji wstecznej jest traktowana jako sabotaż i odrzucana).
+* **Sprzętowy limit aktywnych użytkowników (okno 10-minutowe):** Procedura [`security_users_register_activity()`](../../../KeyFirmware/src/core/security_users.c) przechowuje w pamięci RAM skróty (hashe) unikalnych sesji użytkowników. Jeśli w ciągu ostatnich 10 minut (600 sekund) liczba aktywnych sesji przekroczy limit `MAX_USERS` (zapisany w zabezpieczonej pamięci NVM3), dongle odmawia wykonania obliczeń i zwraca błąd sprzętowy. Każdy algorytm w świecie Secure sam woła `security_verify_license_and_users()` oraz `security_verify_vrx_token()`, więc ograniczenia działają niezależnie od Compass.
 
 ---
 
@@ -456,27 +449,27 @@ Wygenerowany plik wykonywalny podlega opancerzeniu przez silnik Oreans Themida (
 | Poziom Zabezpieczenia | Dokładny Mechanizm | Pliki Źródłowe i Dokumentacja Techniczna | Stan Wdrożenia w Kodzie | Uzasadnienie Statusu / Rola w Projekcie |
 |---|---|---|:---:|---|
 | **Krzem (EFR32MG24)** | Odizolowany Koprocesor Bezpieczeństwa (HSE) | Silicon Labs Datasheet EFR32MG24 §3.8 | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane i aktywne; koprocesor HSE izoluje operacje i klucze kryptograficzne przez PSA Crypto API. |
-| **Krzem (EFR32MG24)** | Sprzętowy PUF i Key Wrapping | Silicon Labs Datasheet EFR32MG24 §3.8.6 | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucz tożsamości `IDENTITY_KEY_ID` w NVM3 zaszyfrowany sprzętowym PUF (brak jawnych kluczy we Flashu). |
+| **Krzem (EFR32MG24)** | Sprzętowy PUF i Key Wrapping | Silicon Labs Datasheet EFR32MG24 §3.8.6 | **`[100% - Aktywne, nietestowane na sprzęcie]`** | Klucz tożsamości `IDENTITY_KEY_ID` generowany w lokalizacji `SL_PSA_KEY_LOCATION_WRAPPED` (owinięty PUF). Dongle provisionowane wcześniej: klucz jawny do ponownego provisioningu. |
 | **Krzem (EFR32MG24)** | Przeciwdziałanie Atakom DPA | Silicon Labs Datasheet EFR32MG24 Table 3.1 | **`[100% - W pełni aktywne sprzętowo]`** | W 100% aktywne sprzętowo; maskowanie prądowe i losowe opóźnienia są wbudowaną autonomiczną cechą krzemu HSE. |
 | **Krzem (EFR32MG24)** | Generator TRNG (NIST SP 800-90A/B/C) | Silicon Labs Datasheet EFR32MG24 §3.8 | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; generator TRNG dostarcza fizycznej entropii dla kluczy efemerycznych ECDHE i soli HKDF. |
 | **Krzem (EFR32MG24)** | Sensory Napięcia (`VGLITCHFALLING/RISING`) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry BOD/VMON i TamperManager (próg 2 incydentów); 100% wymaga nieodwracalnego zaprogramowania pamięci OTP w Secure Engine. |
 | **Krzem (EFR32MG24)** | Detektor Taktowania i Logiki (`DGLITCH`) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry anomalii oscylatora HFXO0 i CFD; 100% wymaga aktywacji flagi `DGLITCH_ALWAYS_ON` w rejestrach OTP. |
 | **Krzem (EFR32MG24)** | Sensory Skrajnych Temperatur | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo z próbkowaniem co 5s i progami <-10°C / >70°C w TamperManagerze; 100% wymaga powiązania ze sprzętowym alarmem OTP koprocesora HSE. |
 | **Krzem (EFR32MG24)** | Detektor Impulsów Elektromagnetycznych (EMP) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo z regułą Zero Tolerance (1 zdarzenie) i API zgłoszeń; 100% wymaga konfiguracji przerwania `SETAMPERHOST` w OTP. |
-| **Krzem (EFR32MG24)** | Trwałe Zerowanie Pamięci (Zeroization / Self-Destruct) | Silicon Labs AN1247 §3, [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c) | **`[100% - Zaimplementowane (50% Dev Mode)]`** | W 100% zaimplementowane w kodzie RAM; domyślnie chronione flagą deweloperską 50%, a flaga 1 fizycznie wymazuje kod programu od 0x08000000. |
+| **Krzem (EFR32MG24)** | Trwałe Zerowanie Pamięci (Zeroization / Self-Destruct) | Silicon Labs AN1247 §3, [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c) | **`[100% - Zaimplementowane (50% Dev Mode)]`** | Device erase Secure Engine (`sl_se_erase_device`) z awaryjnym kasowaniem z RAM; domyślnie tryb deweloperski, włączane opcją CMake `KEYFIRMWARE_TAMPER_LIVE_WIPE`. |
 | **Krzem (EFR32MG24)** | Bezpieczny Rozruch (Secure Boot RTSL) | Silicon Labs Datasheet EFR32MG24 §3.8.2 | **`[0% - Niewykorzystane]`** | W 0% wdrożone; wymaga wygenerowania kluczy produkcyjnych i zablokowania bootloadera przed swobodnym programowaniem przez SWD. |
-| **Krzem (EFR32MG24)** | Blokada Debugera (Secure Debug Lock) | Silicon Labs Series 2 Secure Debug App Note | **`[Zaimplementowane - opcjonalne]`** | Blokada przez SE Manager z firmware (RPC `0x60-0x63`), odblokowanie challenge-response do resetu; włączana flagą `--lock` w `keyadmin/scripts/provision_dongle.py`. |
+| **Krzem (EFR32MG24)** | Blokada Debugera (Secure Debug Lock) | Silicon Labs Series 2 Secure Debug App Note | **`[Zaimplementowane - opcjonalne]`** | Blokada przez SE Manager z firmware (RPC `0x60-0x63`), odblokowanie challenge-response do resetu; jedyny sekret to Command Key, token budowany w pamięci i niezapisywany; włączana flagą `--lock` w `keyadmin/scripts/provision_dongle.py`. |
 | **Krzem (EFR32MG24)** | Certyfikacja Fabryczna Silicon Labs (Attestation) | Silicon Labs Datasheet EFR32MG24 Table 3.1 | **`[0% - Niewykorzystane]`** | W 0% wdrożone; weryfikacja tożsamości bazuje w 100% na własnym Root CA producenta oprogramowania. |
 | **Krzem (EFR32MG24)** | Izolacja ARM TrustZone (Cortex-M33) | Silicon Labs Datasheet EFR32MG24 Table 3.2, [`src/secure/sec_boot.c`](../../../KeyFirmware/src/secure/sec_boot.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; jednostka SAU dzieli Flash i RAM na strefy S, NSC i NS; strefa Secure izoluje algorytmy Compass IP, licencje RTC, sesje i krypto; bramki NSC z walidacją wskaźników CMSE. |
 | **Fizyczny (Klucz USB)** | Pętla przewodowa / styk w obudowie | [`KeyFirmware/src/core/tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c#L11-L64) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane i aktywne; piny PC5 i PC6 z filtrem pull-up wyzwalają przerwania i zgłoszenia do TamperManagera. |
 | **Fizyczny / Środowiskowy** | Scentralizowany Menedżer Sabotażu (TamperManager) | [`KeyFirmware/src/core/tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; centralna klasa ewidencjonuje 10 kategorii tamperów, steruje diodą LED 1s i nadzoruje progi autodestrukcji. |
-| **Fizyczny / Śledczy** | Czarna Skrzynka Flash (Forensic Black Box) | [`KeyFirmware/src/core/tamper_manager.h`](../../../KeyFirmware/src/core/tamper_manager.h#L57-L68) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; rekord z sumą CRC-32 utrwalany na dedykowanej stronie Flash 0x0817E000 przed kasowaniem kodu. |
-| **Kryptografia (Klucz USB)** | Wymiana kluczy ECDHE NIST P-256 | [`KeyFirmware/src/crypto/session_ecdhe.c`](../../../KeyFirmware/src/crypto/session_ecdhe.c#L31-L113) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucze efemeryczne PSA Crypto, sekret współdzielony z HKDF-SHA256, Perfect Forward Secrecy. |
-| **Kryptografia (Klucz USB)** | Szyfrowanie dwukierunkowe AES-256-GCM | [`KeySec/core/secure_channel.py`](../../core/secure_channel.py#L116-L184) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; niezależne klucze dla PC i mikrokontrolera, 12-bajtowe nonce z wymuszoną monotonicznością (anty-replay). |
-| **PKI (Tożsamość Urządzenia)** | Fabryczny Root CA i sprzętowy PUF | [`keyadmin/scripts/provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucz tożsamości chroniony przez PUF w Secure Vault, certyfikat tożsamości podpisany przez Root CA w NVM3. |
-| **Licencjonowanie Sprzętowe** | Zegar RTC i ochrona przed cofaniem daty | [`KeyFirmware/src/security_rtc.c`](../../../KeyFirmware/src/security_rtc.c#L130) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; licznik czasu uniksowego, odrzucanie synchronizacji wstecznych, parametry licencji w NVM3. |
-| **Licencjonowanie Sprzętowe** | Sprzętowy limit aktywnych użytkowników | [`KeyFirmware/src/security_users.c`](../../../KeyFirmware/src/security_users.c#L18) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; tablica aktywnych skrótów tożsamości użytkowników w oknie 10 minut; odmowa obliczeń po przekroczeniu limitu. |
-| **Autoryzacja Zadaniowa** | Sprzętowa rotacja tokenów VRX (Anti-Bypass) | [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c#L116-L149) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; atomowa wymiana i unieważnianie tokenu w NVM3/RAM przed wyrenderowaniem widżetów DOM. |
+| **Fizyczny / Śledczy** | Zaszyfrowany log tamperów (User Data) | [`KeyFirmware/src/core/tamper_manager.h`](../../../KeyFirmware/src/core/tamper_manager.h) | **`[100% - W pełni aktywne]`** | 64 wpisy po 16 B, szyfrowane AES-128 przez SE, na stronie User Data 0x0FE00000, przetrwają kasowanie urządzenia. Nietestowane na sprzęcie. |
+| **Kryptografia (Klucz USB)** | Wymiana kluczy ECDHE NIST P-256 | [`KeyFirmware/src/core/crypto/session_ecdhe.c`](../../../KeyFirmware/src/core/crypto/session_ecdhe.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucze efemeryczne PSA Crypto, sekret współdzielony z HKDF-SHA256, Perfect Forward Secrecy. |
+| **Kryptografia (Klucz USB)** | Szyfrowanie dwukierunkowe AES-256-GCM | [`KeySec/keycomm/core/secure_channel.py`](../../keycomm/core/secure_channel.py), [`router_common.c`](../../../KeyFirmware/src/core/router_common.c) | **`[100% - W pełni aktywne]`** | Niezależne klucze dla każdego kierunku, 12-bajtowe nonce z wymuszoną monotonicznością (anty-replay), typ komendy i OK/ERR jako AAD, błędy po nawiązaniu sesji szyfrowane. AAD i szyfrowane błędy nietestowane na sprzęcie. |
+| **PKI (Tożsamość Urządzenia)** | Fabryczny Root CA i klucz tożsamości w Secure Engine | [`keyadmin/scripts/provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucz tożsamości w NVM3 świata Secure (owinięty PUF), certyfikat tożsamości podpisany przez Root CA w NVM3. |
+| **Licencjonowanie Sprzętowe** | Zegar RTC i ochrona przed cofaniem daty | [`KeyFirmware/src/core/security_rtc.c`](../../../KeyFirmware/src/core/security_rtc.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; licznik czasu uniksowego, odrzucanie synchronizacji wstecznych, parametry licencji w NVM3. |
+| **Licencjonowanie Sprzętowe** | Sprzętowy limit aktywnych użytkowników | [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; tablica aktywnych skrótów tożsamości użytkowników w oknie 10 minut; odmowa obliczeń po przekroczeniu limitu. |
+| **Autoryzacja Zadaniowa** | Sprzętowa rotacja tokenów VRX (Anti-Bypass) | [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; token losowany z TRNG i trzymany tylko w RAM dongla, sprawdzany przez algorytmy i unieważniany komendą `MSG_VRX` przed wyrenderowaniem widżetów DOM. |
 | **Logika w Sprzęcie** | Wyniesione szacunki Safe Space | [`compass/app/level_x/set_safe_space_estimates.py`](../../../compass/app/level_x/set_safe_space_estimates.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; strumieniowanie binarne `MSG_SAFE_SPACE_*` do mikrokontrolera [`safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c). |
 | **Logika w Sprzęcie** | Wyniesione wykresy Safe Space | [`compass/app/level_x/set_safe_space_plots.py`](../../../compass/app/level_x/set_safe_space_plots.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; podprogramy A, B, C liczone w C w mikrokontrolerze [`safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c). |
 | **Logika w Sprzęcie** | Wyniesione tabele symulacji PK/GI | [`compass/app/level_x/Sim_PK_and_GI_table.py`](../../../compass/app/level_x/Sim_PK_and_GI_table.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; strumieniowanie payloadu `MSG_SIM_PK_GI_*` do mikrokontrolera [`sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c). |
@@ -498,14 +491,14 @@ W celu spełnienia najwyższych wymogów bezpieczeństwa oraz zapobieżenia zar�
 System kompilacji CMake ([`cmake_gcc/CMakeLists.txt`](../../../KeyFirmware/cmake_gcc/CMakeLists.txt)) generuje z tego samego repozytorium dwa całkowicie rozłączne pliki binarne (ELF/HEX):
 
 1. **Wersja produkcyjna (`keyfirmware.hex` — wgrywana na klucze dla klientów)**
-   - **Brak funkcji administracyjnych (brak backdoorów):** Moduły administracyjne ([`src/admin/admin_router.c`](../../../KeyFirmware/src/admin/admin_router.c), [`src/admin/admin_cli.c`](../../../KeyFirmware/src/admin/admin_cli.c)) oraz zaszyty na stałe kod PIN (`"1234"`) są **fizycznie wycięte z pliku binarnego** na etapie kompilacji i linkowania.
+   - **Brak funkcji administracyjnych (brak backdoorów):** Moduły administracyjne ([`src/admin/admin_router.c`](../../../KeyFirmware/src/admin/admin_router.c), [`src/admin/admin_cli.c`](../../../KeyFirmware/src/admin/admin_cli.c)) są **fizycznie wycięte z pliku binarnego** na etapie kompilacji i linkowania. Komendy admina istnieją tylko w firmware fabrycznym.
    - Wszelkie próby wysłania komend administracyjnych (`MSG_ADMIN_DATE`, `MSG_ADMIN_LIC`, `MSG_ADMIN_WIPE`, `MSG_ADMIN_USERS`, `MSG_PROVISION_IDENTITY`, `MSG_SAVE_CERTIFICATE`) trafiają do domyślnego handlera, zwracając błąd `ERR: Unknown command (ID)`.
    - **Pełna własność intelektualna (IP):** Zawiera statycznie zlinkowane wszystkie algorytmy obliczeniowe ([`src/prod/compass_core.cpp`](../../../KeyFirmware/src/prod/compass_core.cpp), [`src/prod/logic/sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c), [`src/prod/logic/safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c), [`src/prod/logic/safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c)) oraz alokuje szybkie bufory robocze w pamięci operacyjnej (~135 KB SRAM).
    - **Diagnostyka:** Zawiera odczyt parametrów zdrowotnych (tamper), baterii, logów RAM, a także tymczasową diagnostykę inżynieryjną w fazie pre-produkcji (`MSG_DEBUG_TIME`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`).
 
 2. **Wersja fabryczna (`keyfirmware_prov.hex` — wyłącznie do użytku wewnętrznego)**
    - **Ochrona algorytmów (brak kodu medycznego):** W pliku binarnym nie ma ani jednej linijki kodu algorytmów medycznych Compass ([`src/prod/`](../../../KeyFirmware/src/prod/)). Pracownicy produkcji, monterzy czy zewnętrzne firmy montażowe nie mają fizycznego dostępu do algorytmów nawet w przypadku zrzutu zawartości pamięci Flash.
-   - **Pełne możliwości konfiguracyjne:** Kompiluje moduły `src/admin/admin_router.c` i `src/admin/admin_cli.c`, umożliwiając synchronizację zegara RTC, ustawienie długości licencji, konfigurację limitu aktywnych użytkowników, generowanie tożsamości PUF ([`auth_manager`](../../../KeyFirmware/src/core/crypto/auth_manager.c)) oraz wgrywanie certyfikatu urządzenia.
+   - **Pełne możliwości konfiguracyjne:** Kompiluje moduły `src/admin/admin_router.c` i `src/admin/admin_cli.c`, umożliwiając synchronizację zegara RTC, ustawienie długości licencji, konfigurację limitu aktywnych użytkowników, generowanie klucza tożsamości ([`auth_manager`](../../../KeyFirmware/src/core/crypto/auth_manager.c)) oraz wgrywanie certyfikatu urządzenia.
    - **Minimalny narzut pamięci:** Zużywa poniżej 6 KB SRAM, bez jakichkolwiek buforów symulacyjnych.
 
 ---
@@ -520,15 +513,15 @@ Kod po stronie Pythona został podzielony na dwa odseparowane pakiety:
      - Ramkowanie pakietów (`TinyFrame`) i komunikacja z portem szeregowym (`SerialTransport`).
      - Automatyczny handshake ECDHE (`SecureChannel`) i walidacja certyfikatu klucza w oparciu o publiczny klucz fabryczny (`root_ca_pub.pem`).
      - Szyfrowanie i deszyfrowanie zapytań protokołem AES-256-GCM.
-     - Wysokopoziomowe API biznesowe (`CompassApi`): sprawdzanie ważności licencji, weryfikacja limitu użytkowników, zlecenia obliczeń (`execute_sim_pk_gi`, `calculate_algorithm_1`, `execute_safe_space_*`).
-   - **Bezpieczeństwo:** Nie zawiera **żadnej** logiki administracyjnej, żadnych PIN-ów ani prywatnego klucza Root CA.
+     - Wysokopoziomowe API biznesowe (`CompassApi`): sprawdzanie ważności licencji, weryfikacja limitu użytkowników, zlecenia obliczeń (`execute_sim_pk_gi`, `execute_alg1`, `execute_safe_space_*`).
+   - **Bezpieczeństwo:** Nie zawiera **żadnej** logiki administracyjnej ani kluczy prywatnych.
 
 2. **Pakiet `keyadmin` (Narzędzia fabryczne i administracyjne — wyłącznie wewnętrzne)**
    - **Lokalizacja:** Uruchamiana wyłącznie na bezpiecznych stacjach inżynieryjnych w firmie.
    - **Odpowiedzialności:**
-     - **Automatyczny proces produkcyjny:** Jeden skrypt ([`keyadmin/scripts/provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py), także z menu konsoli, sekcja *FACTORY*), który kompiluje firmware (`flashbat/compile.bat`), wgrywa `keyfirmware_prov.hex` (`flashbat/set_factory_mode.bat`), zleca wygenerowanie tożsamości PUF, podpisuje certyfikat kluczem Root CA, ustawia zegar RTC, licencję i limit użytkowników, flashuje soft produkcyjny `keyfirmware.hex` (`flashbat/set_production_mode.bat`), weryfikuje zapieczętowany dongle (sesja ECDHE, licencja, algorytm, odrzucenie komend admina) i opcjonalnie (`--lock`) zakłada Secure Debug Lock.
+     - **Automatyczny proces produkcyjny:** Jeden skrypt ([`keyadmin/scripts/provision_dongle.py`](../../keyadmin/scripts/provision_dongle.py), także z menu konsoli, sekcja *FACTORY*), który kompiluje firmware (`flashbat/compile.bat`), wgrywa `keyfirmware_prov.hex` (`flashbat/set_factory_mode.bat`), zleca wygenerowanie klucza tożsamości, podpisuje certyfikat kluczem Root CA, ustawia zegar RTC, licencję i limit użytkowników, flashuje soft produkcyjny `keyfirmware.hex` (`flashbat/set_production_mode.bat`), weryfikuje zapieczętowany dongle (sesja ECDHE, licencja, algorytm, odrzucenie komend admina) i opcjonalnie (`--lock`) zakłada Secure Debug Lock.
      - **Interaktywna konsola diagnostyczna:** [`keyadmin/main.py`](../../keyadmin/main.py) z menu `KeySecMenu` do podglądu parametrów baterii, pamięci, zegara RTC i logów.
-   - **Ochrona kluczy:** Prywatny klucz główny `root_ca_priv.pem` znajduje się wyłącznie w `keyadmin/keys/` i nigdy nie trafia do dystrybucji klienckich.
+   - **Ochrona kluczy:** Klucze prywatne (`root_ca_key.pem`, `debug_command_key.pem`) i `tamper_log_key.bin` znajdują się wyłącznie w `keyadmin/keys/` i nigdy nie trafiają do dystrybucji klienckich.
 
 ---
 
@@ -540,28 +533,32 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 | :--- | :---: | :--- | :---: | :---: | :--- |
 | `MSG_PING` | `0x01` | Ping / Heartbeat | **Tak** | **Tak** | Sprawdzenie łączności, mignięcie diodą LED, zapobieganie uśpieniu w trybie EM2. |
 | `MSG_CHECK_LIC` | `0x02` | Sprawdzenie licencji | **Tak** | **Tak** | Odczyt i weryfikacja ważności licencji na podstawie zegara RTC i NVM3. |
-| `MSG_ADMIN_DATE` | `0x03` | Ustawienie daty RTC | **Tak** | **Nie** (Odrzucona) | Wymaga PIN; zapisuje bazowy czas w pamięci NVM3. |
-| `MSG_ADMIN_LIC` | `0x04` | Ustawienie licencji | **Tak** | **Nie** (Odrzucona) | Wymaga PIN; zapisuje czas trwania licencji (w dniach). |
-| `MSG_ADMIN_WIPE` | `0x05` | Reset do ustawień fabrycznych | **Tak** | **Nie** (Odrzucona) | Wymaga PIN; kasuje całą zawartość NVM3 (`nvm3_eraseAll`). |
-| `MSG_COMPASS_ALG1` | `0x06` | Algorytm 1 | **Nie** (Odrzucona) | **Tak** | Obliczenia algorytmu wraz z rejestracją aktywnego użytkownika. |
+| `MSG_ADMIN_DATE` | `0x03` | Ustawienie daty RTC | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; zapisuje bazowy czas w pamięci NVM3. |
+| `MSG_ADMIN_LIC` | `0x04` | Ustawienie licencji | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; zapisuje czas trwania licencji (w dniach). |
+| `MSG_ADMIN_WIPE` | `0x05` | Reset do ustawień fabrycznych | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; kasuje całą zawartość NVM3 (`nvm3_eraseAll`). |
+| `MSG_TEST_ADD` | `0x06` | Algorytm testowy `alg1` | **Nie** (Odrzucona) | **Tak** | Obliczenia testowe wraz z rejestracją aktywnego użytkownika (używane m.in. w weryfikacji provisioningu). |
 | `MSG_DEBUG_TIME` | `0x07` | Diagnostyka zegara RTC | **Tak** | **Tak** *(Pre-prod)* | Odczyt rejestrów RTC, upływu minut oraz parametrów synchronizacji. |
-| `MSG_ADMIN_USERS` | `0x08` | Ustawienie limitu użytkowników | **Tak** | **Nie** (Odrzucona) | Wymaga PIN; zapisuje maksymalną liczbę stanowisk w NVM3. |
+| `MSG_ADMIN_USERS` | `0x08` | Ustawienie limitu użytkowników | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; zapisuje maksymalną liczbę stanowisk w NVM3. |
 | `MSG_COMPASS_USERS` | `0x09` | Odczyt limitu użytkowników | **Tak** | **Tak** | Zwraca limit stanowisk oraz liczbę aktywnych sesji. |
 | `MSG_MEM_INFO` | `0x0A` | Diagnostyka pamięci | **Tak** | **Tak** *(Pre-prod)* | Raport zajętości pamięci Flash, SRAM oraz sterty. |
-| `MSG_PROVISION_IDENTITY` | `0x0B` | Generowanie tożsamości PUF | **Tak** | **Nie** (Odrzucona) | Generowanie tożsamości SECP256R1 przez sprzętowy koprocesor krypto. |
+| `MSG_PROVISION_IDENTITY` | `0x0B` | Generowanie klucza tożsamości | **Tak** | **Nie** (Odrzucona) | Generowanie tożsamości SECP256R1 przez sprzętowy koprocesor krypto. |
 | `MSG_SAVE_CERTIFICATE` | `0x0C` | Zapis certyfikatu | **Tak** | **Nie** (Odrzucona) | Zapis podpisanego przez Root CA certyfikatu w pamięci NVM3. |
 | `MSG_HANDSHAKE_INIT` | `0x0D` | Handshake ECDHE | **Tak** | **Tak** | Wymiana kluczy efemerycznych NIST P-256 i ustalenie klucza sesji. |
 | `MSG_BATTERY_INFO` | `0x0E` | Stan baterii Li-Po | **Tak** | **Tak** | Pomiar napięcia i szacowanie naładowania ogniwa przez IADC. |
 | `MSG_NVM_DIAG` | `0x0F` | Diagnostyka NVM3 | **Tak** | **Tak** *(Pre-prod)* | Odczyt licznika kasowań i wolnego miejsca w pamięci Flash NVM3. |
-| `MSG_SYS_HEALTH` | `0x10` | Status zdrowia / Anti-tamper | **Tak** | **Tak** | Odczyt sumy wykrytych zdarzeń tampera (TamperEvents), temperatury krzemu oraz statusu uzbrojenia Czarnej Skrzynki (BlackBox: ARMED/NONE). |
+| `MSG_SYS_HEALTH` | `0x10` | Status zdrowia / Anti-tamper | **Tak** | **Tak** | Odczyt sumy wykrytych zdarzeń tampera (TamperEvents), temperatury krzemu oraz liczby wpisów w trwałym logu tamperów (TamperLog: N). |
 | `MSG_GET_LOG_SIZE` | `0x11` | Rozmiar logów RAM | **Tak** | **Tak** | Zwraca długość bufora logów w pamięci RAM. |
 | `MSG_GET_LOG_CHUNK` | `0x12` | Odczyt fragmentu logu | **Tak** | **Tak** | Pobieranie fragmentu z 10 KB bufora cyklicznego logów. |
+| `MSG_COMPASS_SIM_PK` | `0x15` | Symulacja PK | **Nie** (Odrzucona) | **Tak** | Obliczenia PK z kontrolą licencji i użytkowników. |
 | `MSG_VRX` | `0x16` | Weryfikacja i unieważnienie tokenu VRX | **Nie** (Odrzucona) | **Tak** | Sprzętowa rotacja tokenów VRX; atomowe zwieńczenie transakcji i unieważnienie tokenu. |
 | `MSG_SIM_PK_GI_*` | `0x30`-`0x33` | Symulacja Motility | **Nie** (Odrzucona) | **Tak** | Szyfrowany potok symulacji motoryki przewodu pokarmowego (JSON/chunks). |
 | `MSG_SAFE_SPACE_*` | `0x40`-`0x45` | Obliczenia Safe Space | **Nie** (Odrzucona) | **Tak** | Wyznaczanie granic parametrów uwalniania dla mediów FaSSGF/FaSSIF. |
 | `MSG_SSP_*` | `0x50`-`0x58` | Wykresy Safe Space | **Nie** (Odrzucona) | **Tak** | Generowanie chmury punktów i wielofazowych krzywych rozpuszczania. |
+| `MSG_DEBUG_LOCK_*` | `0x60`-`0x63` | Secure Debug: status, lock, challenge, unlock | **Tak** | **Tak** | Jawne z założenia; token odblokowania weryfikuje Secure Engine. |
 
 *(Uwaga: Wpis "Nie (Odrzucona)" oznacza, że dany kod rozkazu nie jest zarejestrowany w tablicy routera danej kompilacji i automatycznie zwraca błąd `ERR: Unknown command (ID)`).*
+
+**Szyfrowanie komend w wersji produkcyjnej:** `MSG_CHECK_LIC`, `MSG_VRX`, `MSG_COMPASS_USERS`, `MSG_GET_LOG_*`, `MSG_TEST_ADD`, `MSG_COMPASS_SIM_PK`, `MSG_SIM_PK_GI_*`, `MSG_SAFE_SPACE_*` i `MSG_SSP_*` wymagają aktywnej sesji: zapytanie, odpowiedź i błędy są szyfrowane AES-256-GCM z AAD (typ komendy, OK/ERR). Jawne są: `MSG_PING`, diagnostyka (`MSG_SYS_HEALTH`, `MSG_BATTERY_INFO`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`, `MSG_DEBUG_TIME`), `MSG_HANDSHAKE_INIT` i `MSG_DEBUG_LOCK_*`, a w firmware fabrycznym także komendy admina.
 
 ---
 
@@ -593,7 +590,7 @@ sequenceDiagram
 
     Note over Host,MCU: 3. Zwieńczenie transakcji PRZED wyrenderowaniem UI
     Host->>MCU: MSG_VRX (user_hash, vrx_token)
-    Note over MCU: security_verify_vrx_token(clear=true):<br/>Atomowe skasowanie active_vrx_token = 0
+    Note over MCU: security_verify_vrx_token(clear=true):<br/>Atomowe skasowanie expected_vrx_token = 0
     MCU-->>Host: Status: OK
 
     Note over UI,Host: 4. Bezpieczna prezentacja w DOM
@@ -604,11 +601,11 @@ sequenceDiagram
 
 1. **Przeniesienie stanu do krzemu:** Zgoda na wykonanie i dokończenie operacji nie zależy od flagi w Pythonie (podatnej na NOP-owanie czy hooking), lecz od dynamicznego tokenu w pamięci RAM mikrokontrolera powiązanego z `user_hash`.
 2. **Kolejność krytyczna (*Obliczenia $\rightarrow$ VRX $\rightarrow$ Frontend*):** Żadne dane wyjściowe, tabele ani wykresy nie trafiają do widżetów DOM przed potwierdzeniem z mikrokontrolera. Zatrzymanie lub przerwanie procesu przed `XRouter.vrx()` pozostawia UI w stanie zablokowanym, a wyliczone dane są niszczone w pamięci roboczej.
-3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) atomowo zeruje `active_vrx_token = 0`. Ponowna próba użycia tego samego tokenu traktowana jest jako atak powtórzeniowy (replay attack) i wyzwala sprzętowy alarm (`tamper_event_count++`).
+3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) atomowo zeruje `expected_vrx_token = 0`. Ponowna próba użycia tego samego tokenu traktowana jest jako atak powtórzeniowy (replay attack) i wyzwala sprzętowy alarm (`tamper_event_count++`).
 4. **Celowe złamanie zasady DRY:** Wyeliminowano uniwersalne dekoratory i menedżery kontekstu (będące pojedynczym punktem podatności). Każdy handler posiada jawną sekwencję:
    - Parametr `vrx_token: int` jest bezwzględnie wymagany (brak wartości domyślnych `= 0`).
    - Usunięto warunki `if vrx_token:` – wywołanie `XRouter.vrx(vrx_token)` jest bezwarunkowe.
-5. **Implementacja w firmware:** Plik [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c) obsługuje generację tokenu w `security_rtc_check_license()` oraz weryfikację w procedurze `security_verify_vrx_token()`:
+5. **Implementacja w firmware:** Plik [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c) obsługuje generację tokenu w `security_generate_vrx_token()` (wołanej przy `MSG_CHECK_LIC`) oraz weryfikację w procedurze `security_verify_vrx_token()`:
    - Z `clear_on_success=false` dla algorytmów MCU: [`sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c), [`safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c), [`safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c).
    - Z `clear_on_success=true` dla `MSG_VRX` (`0x16`).
 

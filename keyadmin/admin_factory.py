@@ -1,4 +1,7 @@
+import os
 from typing import Optional, Tuple
+
+from cryptography.hazmat.primitives import serialization
 
 from keycomm.api.compass_api import CompassApi
 from keycomm.api.device_discovery import (
@@ -7,8 +10,20 @@ from keycomm.api.device_discovery import (
     establish_dongle_connection,
 )
 from keyadmin.api.admin_api import AdminApi
+from keyadmin.core.constants import HOST_KEY_FILENAME
 
-__all__ = ["init_admin_device", "find_dongle_port"]
+__all__ = ["init_admin_device", "find_dongle_port", "host_key_path", "load_host_key"]
+
+
+def host_key_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "keys", HOST_KEY_FILENAME)
+
+
+def load_host_key() -> bytes:
+    """Factory copy of the Host Key (same key as XRouter._HOST_KEY in Compass), as a raw 32-byte scalar."""
+    with open(host_key_path(), "rb") as f:
+        key = serialization.load_pem_private_key(f.read(), password=None)
+    return key.private_numbers().private_value.to_bytes(32, "big")
 
 
 def init_admin_device(
@@ -25,7 +40,8 @@ def init_admin_device(
         port=port,
         keys_dir=keys_dir,
         verbose=verbose,
-        allow_unencrypted_admin=True
+        allow_unencrypted_admin=True,
+        host_key=load_host_key()
     )
     if rpc is None or transport is None:
         return None, None, None

@@ -36,7 +36,7 @@ from keyadmin.core.constants import (
     SDL_MSG_LOCK_OK,
     SDL_MSG_UNLOCK_OK,
     SDL_MSG_SAVED_TO_FMT,
-    SDL_MSG_BLACKBOX_READING,
+    SDL_MSG_TAMPER_LOG_READING,
     SDL_ERR_DEVICE_PROTECTED_FMT,
     ADMIN_SEC_FACTORY,
     ADMIN_ACT_PROVISION,
@@ -408,9 +408,9 @@ class KeySecMenu:
         print(self.secure_debug.describe(status))
         print(SDL_MSG_UNLOCK_OK)
         print(SDL_MSG_SAVED_TO_FMT.format(path=folder))
-        print(SDL_MSG_BLACKBOX_READING)
+        print(SDL_MSG_TAMPER_LOG_READING)
         try:
-            print(self.secure_debug.dump_black_box(status.serial))
+            print(self.secure_debug.dump_tamper_log(status.serial))
         except Exception as e:
             print(f"[-] {e}")
         print(self.secure_debug.read_memory_hint(status.serial))

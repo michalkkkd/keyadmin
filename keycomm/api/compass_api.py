@@ -7,7 +7,7 @@ from keycomm.core.protocol import RpcProtocol
 from keycomm.core.constants import (
     MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS, MSG_VRX,
     RESP_REQ_BYTES, ERR_NO_EMAIL,
-    CHAR_ENCODING_UTF8, BYTEORDER_LITTLE, TOKEN_OK, STATUS_OK,
+    CHAR_ENCODING_UTF8, BYTEORDER_LITTLE, RESP_OK_PREFIX, STATUS_OK,
     STATUS_FAILED_FMT, LOGGER_NAME_KEYCOMM_API,
     LOG_FMT_CHECK_LICENSE, LOG_FMT_VRX, LOG_FMT_VRX_REJECTED,
     PAYLOAD_ALG1_FMT
@@ -62,7 +62,9 @@ class CompassApi:
         self.last_vrx_token = 0
         payload = self.user_hash.to_bytes(4, byteorder=BYTEORDER_LITTLE) + token.to_bytes(4, byteorder=BYTEORDER_LITTLE)
         res = self.rpc.execute_command(MSG_VRX, payload)
-        ok = TOKEN_OK in res
+        # Only a MSG_OK response counts: it is decrypted and its OK status is authenticated (AAD).
+        # A plaintext error frame can never produce this prefix, whatever text it carries.
+        ok = res.startswith(RESP_OK_PREFIX)
         status_str = STATUS_OK if ok else STATUS_FAILED_FMT.format(res=res)
         logger.info(
             LOG_FMT_VRX.format(

@@ -21,11 +21,13 @@ def init_comm_device(
     keys_dir: Optional[str] = None,
     user_email: str = "",
     verbose: bool = True,
-    enable_heartbeat: bool = True
+    enable_heartbeat: bool = True,
+    *,
+    host_key: bytes
 ) -> Tuple[Optional[CompassApi], Optional[object]]:
     """
     Initializes communication connection to the Dongle, performs ECDHE handshake,
-    and returns (compass_api, transport).
+    and returns (compass_api, transport). host_key signs the handshake (the dongle rejects other hosts).
     """
     if verbose:
         print(f"[KEYCOMM FACTORY] init_comm_device invoked: port={port}, keys_dir={keys_dir}, verbose={verbose}")
@@ -33,7 +35,8 @@ def init_comm_device(
         port=port,
         keys_dir=keys_dir,
         verbose=verbose,
-        allow_unencrypted_admin=False
+        allow_unencrypted_admin=False,
+        host_key=host_key
     )
     if rpc is None or transport is None:
         if verbose:
@@ -56,7 +59,9 @@ def init_device(
     keys_dir: Optional[str] = None,
     user_email: str = "",
     verbose: bool = True,
-    enable_heartbeat: bool = True
+    enable_heartbeat: bool = True,
+    *,
+    host_key: bytes
 ) -> Tuple[Optional[CompassApi], Optional[object], Optional[object]]:
     """
     Backward-compatible factory returning (compass, admin=None, transport).
@@ -67,7 +72,8 @@ def init_device(
         keys_dir=keys_dir,
         user_email=user_email,
         verbose=verbose,
-        enable_heartbeat=enable_heartbeat
+        enable_heartbeat=enable_heartbeat,
+        host_key=host_key
     )
     if compass is None:
         return None, None, None

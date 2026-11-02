@@ -9,7 +9,6 @@ from keycomm.core.constants import (
     RESP_OK_PREFIX, RESP_ERR_PREFIX, RESP_UNKNOWN_PREFIX, RESP_FIRE_AND_FORGET,
     DUMMY_PAYLOAD_BYTE, EMPTY_BYTES, CHAR_ENCODING_UTF8,
     MCU_ERR_SESSION_INACTIVE, MCU_ERR_DECRYPT_FAILED, MCU_ERR_DECRYPTION_FAILED,
-    MCU_ERR_LIC_EXPIRED,
     LOG_FMT_SENDING, LOG_FMT_MCU, LOG_FMT_CORRUPTED_CRC, LOG_FMT_SESSION_ERROR,
     LOG_FMT_DECRYPT_FAIL, ERR_FMT_DECRYPT_FAILED, ERR_FMT_TIMEOUT_RETRIES,
     TIMESTAMP_FMT, RE_SYNC_ELAPSED, SYNC_ELAPSED_FMT
@@ -71,7 +70,7 @@ class RpcProtocol:
             for attempt in range(max_retries):
                 # Re-encrypt for each attempt to guarantee fresh monotonic nonce counter on retries
                 if is_secure and cmd_id in self.SECURE_CMD_IDS:
-                    tx_payload = self.secure_channel.encrypt_payload(raw_payload)
+                    tx_payload = self.secure_channel.encrypt_payload(raw_payload, cmd_id)
                 else:
                     tx_payload = raw_payload
 
@@ -85,21 +84,16 @@ class RpcProtocol:
 
                     # If it was a secure command, decrypt the response (whether OK or ERR)
                     if is_secure and cmd_id in self.SECURE_CMD_IDS and resp.type in (MSG_OK, MSG_ERR):
-                        # If MCU responded with an unencrypted error (e.g. ERR: Decrypt Failed, License expired, Secure Session Not Active),
-                        # preserve the diagnostic string instead of failing with "Encrypted payload too short"
-                        if resp.type == MSG_ERR and (len(resp_data) < 20 or resp_data.startswith(b"ERR:") or resp_data.startswith(MCU_ERR_LIC_EXPIRED.encode())):
+                        # Only two MCU errors stay unencrypted: no session yet (Secure Session Not Active) and Encrypt Failed.
+                        # Every other error arrives encrypted and is handled after decryption below.
+                        if resp.type == MSG_ERR and (len(resp_data) < 20 or resp_data.startswith(b"ERR:")):
                             data_str = resp_data.decode(CHAR_ENCODING_UTF8, errors='ignore')
-                            if (MCU_ERR_SESSION_INACTIVE in data_str or MCU_ERR_DECRYPT_FAILED in data_str or MCU_ERR_DECRYPTION_FAILED in data_str) and attempt < max_retries - 1 and hasattr(self, 'secure_channel') and self.secure_channel:
-                                self.session_resets_count += 1
-                                self.retransmissions_count += 1
-                                print(LOG_FMT_SESSION_ERROR.format(data_str=data_str))
-                                if self.secure_channel.init_handshake():
-                                    is_secure = self.secure_channel.is_active
-                                    time.sleep(0.05)
-                                    continue
+                            if self._is_session_error(data_str) and attempt < max_retries - 1 and self._restart_session(data_str):
+                                is_secure = self.secure_channel.is_active
+                                continue
                             return f"{RESP_ERR_PREFIX}{data_str}"
                         try:
-                            resp_data = self.secure_channel.decrypt_payload(resp_data)
+                            resp_data = self.secure_channel.decrypt_payload(resp_data, cmd_id, resp.type)
                         except Exception as e:
                             if attempt < max_retries - 1 and hasattr(self, 'secure_channel') and self.secure_channel:
                                 self.session_resets_count += 1
@@ -112,6 +106,12 @@ class RpcProtocol:
                             return f"{RESP_ERR_PREFIX}{ERR_FMT_DECRYPT_FAILED.format(err=str(e))}"
 
                     data_str = resp_data.decode(CHAR_ENCODING_UTF8, errors='ignore')
+                    # The MCU could not decrypt our request (sent encrypted): keys out of sync, start a new session
+                    if (is_secure and cmd_id in self.SECURE_CMD_IDS and resp.type == MSG_ERR
+                            and self._is_session_error(data_str) and attempt < max_retries - 1
+                            and self._restart_session(data_str)):
+                        is_secure = self.secure_channel.is_active
+                        continue
                     if resp.type == MSG_OK:
                         return f"{RESP_OK_PREFIX}{data_str}"
                     elif resp.type == MSG_ERR:
@@ -131,4 +131,21 @@ class RpcProtocol:
                     time.sleep(0.3)
 
             return f"{RESP_ERR_PREFIX}{ERR_FMT_TIMEOUT_RETRIES.format(retries=max_retries)}"
+
+    @staticmethod
+    def _is_session_error(data_str: str) -> bool:
+        return (MCU_ERR_SESSION_INACTIVE in data_str or MCU_ERR_DECRYPT_FAILED in data_str
+                or MCU_ERR_DECRYPTION_FAILED in data_str)
+
+    def _restart_session(self, data_str: str) -> bool:
+        """New handshake after a session error; True when the command should be retried."""
+        if not (hasattr(self, 'secure_channel') and self.secure_channel):
+            return False
+        self.session_resets_count += 1
+        self.retransmissions_count += 1
+        print(LOG_FMT_SESSION_ERROR.format(data_str=data_str))
+        if not self.secure_channel.init_handshake():
+            return False
+        time.sleep(0.05)
+        return True
 

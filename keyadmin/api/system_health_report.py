@@ -3,8 +3,7 @@ import re
 from keyadmin.core.constants import (
     RE_TAMPER_EVENTS,
     RE_TEMPERATURE,
-    RE_BLACKBOX,
-    BLACKBOX_STATE_NONE,
+    RE_TAMPER_LOG,
     TOKEN_ERR,
     TOKEN_FAIL,
 )
@@ -17,7 +16,7 @@ class SystemHealthReport(str):
     """
     tamper_events: int
     temperature_c: float
-    blackbox_state: str
+    tamper_log_entries: int
     is_tampered: bool
     is_error: bool
     raw: str
@@ -45,10 +44,10 @@ class SystemHealthReport(str):
             except ValueError:
                 self.temperature_c = 0.0
 
-        self.blackbox_state = BLACKBOX_STATE_NONE
-        m_bb = re.search(RE_BLACKBOX, s)
-        if m_bb:
-            self.blackbox_state = m_bb.group(1)
+        self.tamper_log_entries = 0
+        m_log = re.search(RE_TAMPER_LOG, s)
+        if m_log:
+            self.tamper_log_entries = int(m_log.group(1))
 
         self.is_tampered = not self.is_error and (self.tamper_events > 0)
 

@@ -141,8 +141,7 @@ STRUCT_FMT_UINT32_LE        = "<I"
 # System Health & Anti-Tamper Report
 RE_TAMPER_EVENTS            = r"TamperEvents:\s*(\d+)"
 RE_TEMPERATURE              = r"Temp:\s*(-?[\d.]+)C"
-RE_BLACKBOX                 = r"BlackBox:\s*([A-Za-z0-9_-]+)"
-BLACKBOX_STATE_NONE         = "NONE"
+RE_TAMPER_LOG               = r"TamperLog:\s*(\d+)"
 TOKEN_ERR                   = "ERR"
 TOKEN_FAIL                  = "FAIL"
 
@@ -175,30 +174,19 @@ SDL_STORE_DIRNAME             = "secure_debug"
 SDL_DEVICES_DIRNAME           = "devices"
 SDL_PROTECTED_FILENAME        = "protected_devices.json"
 SDL_DEVICE_DIR_FMT            = "device_{serial}"
-SDL_CHALLENGE_DIR_FMT         = "challenge_{challenge}"
 SDL_COMMAND_KEY_FILENAME      = "debug_command_key.pem"
 SDL_COMMAND_PUBKEY_FILENAME   = "debug_command_pubkey.pem"
-SDL_CERT_KEY_FILENAME         = "cert_key.pem"
-SDL_CERT_PUBKEY_FILENAME      = "cert_pubkey.pem"
-SDL_ACCESS_CERT_FILENAME      = "access_certificate.bin"
 SDL_DEVICE_INFO_FILENAME      = "device.json"
-SDL_CHALLENGE_FILENAME        = "challenge.bin"
-SDL_UNLOCK_TOKEN_FILENAME     = "unlock_token.bin"
-SDL_RESULT_FILENAME           = "result.json"
 SDL_FIRMWARE_HEADER_RELPATH   = ("..", "KeyFirmware", "src", "secure", "debug_command_pubkey.h")
 SDL_PACK_RELPATH              = ("..", "KeyFirmware", "flashbat", "SiliconLabs.GeckoPlatform_EFR32MG24_DFP.2025.6.0.pack")
-SDL_BLACKBOX_DUMP_FILENAME    = "blackbox_dump.bin"
+SDL_TAMPER_LOG_DUMP_FILENAME  = "userdata_dump.bin"
+TLOG_KEY_FILENAME             = "tamper_log_key.bin"
+HOST_KEY_FILENAME             = "host_key.pem"
+TLOG_FIRMWARE_HEADER_RELPATH  = ("..", "KeyFirmware", "src", "core", "tamper_log_key.h")
 SDL_PYOCD_TARGET              = "efr32mg24b220f1536im48"
-SDL_BLACKBOX_ADDR             = 0x0817E000
-SDL_BLACKBOX_SIZE             = 512
-SDL_BLACKBOX_ERASED_BYTE      = 0xFF
-SDL_PYOCD_SAVEMEM_FMT         = "savemem 0x{addr:08X} {size} {outfile}"
 SDL_PYOCD_TIMEOUT_SEC         = 60
-SDL_MSG_BLACKBOX_READING      = "[*] Reading the Black Box over SWD (pyOCD attach mode, no reset)..."
-SDL_MSG_BLACKBOX_SAVED_FMT    = "[+] Black Box saved: {path} ({size} bytes, {state})"
-SDL_BLACKBOX_STATE_EMPTY      = "empty: no tamper event recorded"
-SDL_BLACKBOX_STATE_DATA       = "contains data"
-SDL_ERR_BLACKBOX_FMT          = "Black Box read failed: {error}"
+SDL_MSG_TAMPER_LOG_READING    = "[*] Reading the tamper log over SWD (pyOCD attach mode, no reset)..."
+SDL_MSG_TAMPER_LOG_SAVED_FMT  = "[+] User Data page (tamper log) saved: {path} ({size} bytes)\n{report}"
 
 # Device JSON fields & events
 SDL_JSON_SERIAL               = "serial"
@@ -232,7 +220,6 @@ SDL_DEBUG_UNLOCK_PARAM        = 0x3E      # debug port + NS/S invasive + non-inv
 SDL_CERT_BODY_STRUCT          = "<IHBBI16s64s"
 SDL_CHALLENGE_RESP_STRUCT     = "<II16s"
 SDL_ACCESS_CERT_SIZE          = 156
-SDL_CERT_SERIAL_OFFSET        = 12        # magic(4) + auth_debug(2) + misc(1) + key_index(1) + tamper(4)
 SDL_UNLOCK_TOKEN_SIZE         = 220
 
 # Firmware response parsing
@@ -300,7 +287,7 @@ SDL_MSG_STATUS_FMT = (
     "Lock protection  : {protection}\n"
     "                   PROTECTED = this serial is on the dev list, so every lock command is refused on the host.\n"
     "Data folder      : {folder}\n"
-    "                   Host folder with this dongle's certificate, challenges and event log."
+    "                   Host folder with this dongle's event log and tamper log dump."
 )
 SDL_MSG_LOCK_WARNING = (
     "WARNING: This writes the public Command Key to OTP (irreversible) and locks the SWD port.\n"
@@ -318,7 +305,7 @@ SDL_MSG_LOCK_OK               = "[+] Secure debug lock applied and verified."
 SDL_MSG_UNLOCK_OK             = "[+] Debug port is OPEN until the next reset / power cycle."
 SDL_MSG_UNLOCK_HINT_FMT = (
     "Do NOT reset or unplug the dongle. Read more memory in attach mode (use forward slashes, pyOCD drops backslashes):\n"
-    "  python -m pyocd cmd -t efr32mg24b220f1536im48 --pack \"{pack}\" -M attach -c \"savemem 0x0817E000 512 {outfile}\""
+    "  python -m pyocd cmd -t efr32mg24b220f1536im48 --pack \"{pack}\" -M attach -c \"savemem 0x0FE00000 1024 {outfile}\""
 )
 SDL_MSG_SAVED_TO_FMT          = "[*] Saved to: {path}"
 SDL_MSG_KEY_CREATED_FMT       = "[+] Command key pair created in: {path}"
@@ -337,7 +324,6 @@ SDL_ERR_LOCK_NOT_VERIFIED_FMT = "Lock was not confirmed by status readback: {sta
 SDL_ERR_SMOKE_FAILED_FMT      = "Smoke test failed, NOT locking: {result}"
 SDL_ERR_NO_CONNECTION         = "Could not connect to the dongle."
 SDL_ERR_DEVICE_PROTECTED_FMT  = "Dongle {serial} is on the protected list ({path}). Debug lock refused."
-SDL_ERR_SERIAL_MISMATCH_FMT   = "Access certificate serial {cert} does not match dongle serial {device}."
 
 # =============================================================================
 # FACTORY PROVISIONING PIPELINE (keyadmin/scripts/provision_dongle.py)

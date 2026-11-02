@@ -2,6 +2,7 @@ import os
 import struct
 import threading
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -10,7 +11,7 @@ from cryptography.exceptions import InvalidSignature
 
 from keycomm.core.constants import (
     MSG_HANDSHAKE_INIT, MSG_OK,
-    HKDF_CLIENT_INFO, HKDF_SERVER_INFO,
+    HKDF_CLIENT_INFO, HKDF_SERVER_INFO, HOST_AUTH_LABEL,
     NONCE_DIR_HOST_TO_DEVICE, NONCE_DIR_DEVICE_TO_HOST,
     CHAR_ENCODING_UTF8, BYTEORDER_BIG,
     ERR_SECURE_NOT_ESTABLISHED, ERR_COUNTER_EXHAUSTED, ERR_PAYLOAD_TOO_SHORT,
@@ -22,9 +23,11 @@ from keycomm.core.constants import (
 )
 
 class SecureChannel:
-    def __init__(self, rpc, root_ca_pub_path):
+    def __init__(self, rpc, root_ca_pub_path, host_key: bytes):
+        """host_key: raw 32-byte P-256 private scalar; the dongle opens a session only for its signature."""
         self.rpc = rpc
         self.root_ca_pub_path = root_ca_pub_path
+        self.host_key = ec.derive_private_key(int.from_bytes(host_key, BYTEORDER_BIG), ec.SECP256R1())
         self._lock = threading.RLock()
         self.client_aesgcm = None
         self.server_aesgcm = None
@@ -65,7 +68,11 @@ class SecureChannel:
         # Generate Challenge Nonce
         pc_nonce = os.urandom(32)
         
-        payload = pc_pub + pc_nonce
+        # Host authentication: the dongle verifies this signature with the Host public key built into its firmware
+        r, s = decode_dss_signature(self.host_key.sign(HOST_AUTH_LABEL + pc_pub + pc_nonce, ec.ECDSA(hashes.SHA256())))
+        host_sig = r.to_bytes(32, BYTEORDER_BIG) + s.to_bytes(32, BYTEORDER_BIG)
+
+        payload = pc_pub + pc_nonce + host_sig
         
         print(LOG_HANDSHAKE_INIT)
         resp = self.rpc.transport.query(MSG_HANDSHAKE_INIT, payload, timeout=5.0)
@@ -169,7 +176,7 @@ class SecureChannel:
         print(LOG_SESSION_ESTABLISHED)
         return True
 
-    def encrypt_payload(self, plaintext: bytes) -> bytes:
+    def encrypt_payload(self, plaintext: bytes, cmd_id: int) -> bytes:
         with self._lock:
             if not self.is_active or self.client_aesgcm is None:
                 raise RuntimeError(ERR_SECURE_NOT_ESTABLISHED)
@@ -181,12 +188,13 @@ class SecureChannel:
             # 12-byte Nonce: [4 bytes uint32_le counter] [NONCE_DIR_HOST_TO_DEVICE] [7 zero bytes]
             nonce = struct.pack('<IB7x', self.tx_nonce_counter, NONCE_DIR_HOST_TO_DEVICE)
             
-            ciphertext = self.client_aesgcm.encrypt(nonce, plaintext, associated_data=None)
+            # AAD = command type: the MCU rejects a ciphertext relabelled as another command
+            ciphertext = self.client_aesgcm.encrypt(nonce, plaintext, associated_data=bytes([cmd_id]))
             
             # We prepend only the 4-byte counter to ciphertext + tag (saves UART bandwidth)
             return struct.pack('<I', self.tx_nonce_counter) + ciphertext
 
-    def decrypt_payload(self, encrypted: bytes) -> bytes:
+    def decrypt_payload(self, encrypted: bytes, cmd_id: int, resp_type: int) -> bytes:
         with self._lock:
             if not self.is_active or self.server_aesgcm is None:
                 raise RuntimeError(ERR_SECURE_NOT_ESTABLISHED)
@@ -204,7 +212,8 @@ class SecureChannel:
             nonce = struct.pack('<IB7x', incoming_counter, NONCE_DIR_DEVICE_TO_HOST)
             ciphertext = encrypted[4:]
             
-            plaintext = self.server_aesgcm.decrypt(nonce, ciphertext, associated_data=None)
+            # AAD = command type + response type (MSG_OK / MSG_ERR): neither can be swapped in transit
+            plaintext = self.server_aesgcm.decrypt(nonce, ciphertext, associated_data=bytes([cmd_id, resp_type]))
 
             # Commit new counter strictly after successful authenticated decryption
             self.rx_nonce_counter = incoming_counter

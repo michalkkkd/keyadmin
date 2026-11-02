@@ -32,7 +32,7 @@ from keyadmin.core.constants import (
     SDL_MSG_LOCK_OK,
     SDL_MSG_UNLOCK_OK,
     SDL_MSG_SAVED_TO_FMT,
-    SDL_MSG_BLACKBOX_READING,
+    SDL_MSG_TAMPER_LOG_READING,
     SDL_MSG_SMOKE_TEST,
     SDL_MSG_SMOKE_OK_FMT,
     SDL_ERR_SMOKE_FAILED_FMT,
@@ -113,9 +113,9 @@ def main() -> int:
             folder = service.unlock()
             print(SDL_MSG_UNLOCK_OK)
             print(SDL_MSG_SAVED_TO_FMT.format(path=folder))
-            print(SDL_MSG_BLACKBOX_READING)
+            print(SDL_MSG_TAMPER_LOG_READING)
             try:
-                print(service.dump_black_box(status.serial))
+                print(service.dump_tamper_log(status.serial))
             except Exception as e:
                 print(f"[-] {e}")
             print(service.read_memory_hint(status.serial))

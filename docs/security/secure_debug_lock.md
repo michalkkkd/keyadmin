@@ -22,15 +22,15 @@ Enabling Secure Debug Lock performs three Secure Engine (SE) operations, in this
 What is deliberately **not** done: `disabledeviceerase`. Device erase stays available as a last-resort recovery.
 
 ### What it protects against
-* **Firmware / IP extraction over SWD:** the proprietary Compass algorithms in the secure world, the license logic and the Black Box can no longer be read with a debugger.
+* **Firmware / IP extraction over SWD:** the proprietary Compass algorithms in the secure world, the license logic and the tamper log can no longer be read with a debugger.
 * **Live debugging attacks:** halting the CPU, patching the license check in RAM, reading session keys from RAM, single-stepping TrustZone code.
 * **Reflashing the dongle** with modified firmware while keeping its NVM3 state (license, identity key, certificate).
 
 ### What it does NOT change
 * Normal operation: Compass, VCOM/USB RPC, encrypted sessions, license and user limits work exactly as before.
 * The RAM logs over USB (`MSG_GET_LOG_*`) still work without any unlock.
-* **Device erase** is still possible: it re-opens the port but wipes the **entire** flash (firmware, NVM3 license, identity key, certificate, Black Box). An attacker gains an empty chip, never our data.
-* Keys in NVM3 were already PUF-wrapped; the lock adds protection for code and RAM, which PUF wrapping does not cover.
+* **Device erase** is still possible: it re-opens the port but wipes the **entire** main flash (firmware, NVM3 license, identity key, certificate). Only the User Data page with the encrypted tamper log survives. An attacker gains an empty chip, never our data.
+* The identity key in NVM3 is PUF-wrapped (dongles provisioned with firmware from 2026-10-30 on); the lock adds protection for code, RAM and the license data, which wrapping does not cover.
 
 ### How the firmware implements it
 * **Secure world** ([`KeyFirmware/src/secure/sec_debug_lock.c`](../../../KeyFirmware/src/secure/sec_debug_lock.c)): all SE calls; the public Command Key is **compiled in** from [`debug_command_pubkey.h`](../../../KeyFirmware/src/secure/debug_command_pubkey.h) and is never accepted from the host, so nobody can install their own key through the RPC.
@@ -56,14 +56,14 @@ Plaintext is intentional: the SE itself verifies the token (serial number + curr
 
 | Action | How | Notes |
 |---|---|---|
-| Read the Black Box (tamper forensics, `0x0817E000`) | `python -m pyocd cmd ... -M attach -c "savemem 0x0817E000 512 <file>"` (the exact command is printed by the tool) | Use **attach** mode: a reset re-locks the port. |
+| Read the encrypted tamper event log (User Data page `0x0FE00000`, 1 KB) | Done and decoded automatically after `unlock`; manually: `python -m pyocd cmd ... -M attach -c "savemem 0x0FE00000 1024 <file>"`, decode with `keyadmin/scripts/read_tamper_log.py --file <file>` (the exact command is printed by the tool) | Use **attach** mode: a reset re-locks the port. |
 | Dump any flash / RAM region, inspect the secure world | pyOCD / GDB in attach mode | Full access: non-secure + secure, invasive + non-invasive. |
 | Debug a fault live | GDB attach | Port stays open until reset. |
 | Reflash firmware (update / fix) | `unlock`, then `flash.bat` or `set_production_mode.bat` | The reset at the end of flashing re-locks the port, so a separate re-lock is not needed. The OTP key and the lock stay. |
 | Re-provision (new license, new customer) | `unlock` → `set_factory_mode.bat` → provisioning over USB → `unlock` again (provisioning firmware also has `0x63`) → `set_production_mode.bat` | NVM3 is preserved by flashing; use `MSG_ADMIN_WIPE` in factory mode for a clean slate. |
 
 **Limitations:**
-* The VCOM unlock needs **running firmware**. If the firmware destroyed itself (tamper self-destruct erases the code flash), the unlock must go through the debug interface instead: Simplicity Commander with a J-Link and the same key (`commander security unlock --command-key debug_command_key.pem`). This path has not been tested on the XIAO yet.
+* The VCOM unlock needs **running firmware**. After a tamper live wipe no unlock is needed: the Secure Engine device erase also resets the debug lock, so the tamper log (User Data page, kept by the erase) can be read directly over SWD and decrypted with `tamper_log_key.bin` (see [antitamper.md](antitamper.md)). If the firmware is broken for another reason, the unlock must go through the debug interface instead: Simplicity Commander with a J-Link and the same key (`commander security unlock --command-key debug_command_key.pem`). This path has not been tested on the XIAO yet.
 * The **OTP key can never be removed**. A unit locked with a given Command Key is tied to it for life.
 * Last resort: a full **device erase** through the SE debug interface (e.g. `commander device recover`). It re-opens the port permanently but destroys everything except OTP. Whether the XIAO's on-board CMSIS-DAP can issue it via pyOCD is unverified; a J-Link on the SWD pads is the known-good path.
 
@@ -77,11 +77,10 @@ Plaintext is intentional: the SE itself verifies the token (serial number + curr
 |---|---|---|
 | **Root CA private key** | `keyadmin/keys/root_ca_key.pem` (host) | Signs each dongle's identity public key during provisioning (`provision_dongle.py`). |
 | **Root CA public key** | `keyadmin/keys/root_ca_pub.pem`, `keycomm/keys/root_ca_pub.pem`, shipped with Compass | Compass checks that a dongle's identity certificate was signed by us (genuine dongle). |
-| **Device identity key** | Inside each dongle (NVM3, PUF-wrapped, never exported) | Signs the ECDHE handshake, which proves the dongle's identity and prevents MitM. |
+| **Device identity key** | Inside each dongle (NVM3 of the Secure world, PUF-wrapped `SL_PSA_KEY_LOCATION_WRAPPED`; older dongles plain until re-provisioned; never sent out) | Signs the ECDHE handshake, which proves the dongle's identity and prevents MitM. |
 | **Device certificate** | Inside each dongle (NVM3) | Root CA signature over the identity public key. |
-| **Command Key, private** | `keyadmin/keys/debug_command_key.pem` (host) | **One per product/factory, not per device.** Signs access certificates and authorizes debug unlocks of every dongle locked with it. |
+| **Command Key, private** | `keyadmin/keys/debug_command_key.pem` (host) | **One per product/factory, not per device, and the only unlock secret.** keyadmin signs every unlock token with it, in memory. |
 | **Command Key, public** | `keyadmin/keys/debug_command_pubkey.pem` + compiled into firmware (`debug_command_pubkey.h`) + OTP of each locked dongle | The trust anchor the SE uses to verify unlock tokens. |
-| **Certificate key (per device)** | `keyadmin/keys/secure_debug/devices/device_<serial>/cert_key.pem` | Short chain below the Command Key: signs the per-unlock challenge response. |
 | **Session keys** | RAM only (ECDHE + HKDF, AES-256-GCM) | Per-connection encryption; unrelated to the debug lock. |
 
 The Root CA chain and the Command Key chain are **independent**. The Root CA proves "this dongle is genuine" to Compass. The Command Key proves "this host is the manufacturer" to the dongle's Secure Engine.
@@ -90,20 +89,22 @@ The Root CA chain and the Command Key chain are **independent**. The Root CA pro
 
 ```
 debug_command_key.pem (private, factory-wide)
-        │ signs (once per device)
+        │ at every unlock, in memory: new throwaway certificate key, certificate signed by the Command Key
         ▼
-access_certificate.bin  = magic | auth bits | SE serial[16] | cert_pubkey[64] | signature[64]   (156 B)
-        │ cert_key.pem signs (every unlock)
+access certificate      = magic | auth bits | SE serial[16] | cert_pubkey[64] | signature[64]   (156 B)
+        │ throwaway certificate key signs
         ▼
 challenge response      = DEBUG_ACCESS_CMD | unlock params | challenge[16]                     (24 B)
 
-unlock_token.bin        = access_certificate + challenge signature                             (220 B)
+unlock token            = access certificate + challenge signature                             (220 B)
 ```
+
+The SE format needs the two-step chain (certificate + challenge signature), but keyadmin builds both in memory from the Command Key at every unlock and saves neither: **the Command Key is the only unlock secret.**
 
 The SE accepts the token only if:
 1. the certificate was signed by the Command Key stored in **its** OTP;
 2. the serial number in the certificate is **its own**, so a token cannot be reused on another dongle;
-3. the challenge signature matches its **current** challenge, so an old token cannot be replayed after the challenge rolls.
+3. the challenge signature matches its **current** challenge. The challenge stays the same until rolled; we do not roll it, because tokens are made only in the factory and never stored.
 
 ### 3.3 `keyadmin/keys/` folder layout
 
@@ -118,19 +119,13 @@ keyadmin/keys/
     └── devices/
         └── device_<SE serial>/     One folder per dongle, named after the 16-byte Secure Engine serial
             ├── device.json         Last status + history of STATUS / LOCK / UNLOCK events (timestamp, port, response)
-            ├── cert_key.pem        Per-device certificate private key (created on first unlock)
-            ├── cert_pubkey.pem     Its public key
-            ├── access_certificate.bin   Signed by the Command Key; reused for every unlock of this dongle
-            ├── blackbox_dump.bin   Suggested output path for the Black Box dump (written by pyOCD)
-            └── challenge_<hex>/    One folder per unlock attempt
-                ├── challenge.bin   16-byte challenge from the SE
-                ├── unlock_token.bin  220-byte token sent to the dongle
-                └── result.json     Timestamp, firmware response, success flag
+            └── userdata_dump.bin   User Data page dump (tamper log, written by pyOCD)
 ```
+
+No unlock material (certificate, its key, token) is ever written here.
 
 **Serial number:** each EFR32MG24 has a factory-unique 16-byte SE serial number (for example `0000000000000000880F62FFFE3E183B`; the last 8 bytes are the chip's EUI-64). It differs from the USB serial of the XIAO's on-board USB bridge, so do not use the COM port identity to name devices.
 
-**Note:** because an `access_certificate.bin` + `cert_key.pem` pair is reusable for the life of that dongle, the device folder is enough to unlock that one dongle without the Command Key. Protect it accordingly.
 
 ---
 
@@ -159,7 +154,7 @@ Safety layers against accidental locking of development boards:
 2. `--lock` must be passed explicitly to `provision_dongle.py` (or `y` answered in the menu) and confirmed by typing `LOCK`;
 3. firmware built before a Command Key existed (`BUILTIN_KEY:0`) cannot lock at all.
 
-Other CLI commands: `status`, `unlock` (writes the `challenge_<hex>/` folder and prints the pyOCD command), `protect`. Options: `--port COMx`, `--store DIR` (device data), `--keys DIR` (Command Key folder).
+Other CLI commands: `status`, `unlock` (builds the token in memory, records the event in `device.json`, dumps the tamper log and prints the pyOCD command), `protect`. Options: `--port COMx`, `--store DIR` (device data), `--keys DIR` (Command Key folder).
 
 ---
 
@@ -177,7 +172,7 @@ The OTP key of a dongle never changes, so after a rotation two populations exist
 | Dongle state | With new firmware (new key built in) | How to unlock it |
 |---|---|---|
 | Never locked (OTP empty) | LOCK installs the **new** key | New key |
-| Locked with the **old** key | STATUS shows `CMD_KEY:MISMATCH`; LOCK is refused (it is already locked anyway) | Its existing `device_<serial>/access_certificate.bin` + `cert_key.pem` keep working. If the folder is missing, the **old** Command Key is needed: `secure_debug_lock.py unlock --keys <old keys dir>` |
+| Locked with the **old** key | STATUS shows `CMD_KEY:MISMATCH`; LOCK is refused (it is already locked anyway) | Needs the **old** Command Key: `secure_debug_lock.py unlock --keys <old keys dir>` |
 
 ### Procedure for the move to real production
 1. Generate the production key into a separate folder: `python keyadmin/scripts/generate_debug_command_key.py --keys <production keys dir>`. This also rewrites the firmware header.
@@ -186,7 +181,7 @@ The OTP key of a dongle never changes, so after a rotation two populations exist
 4. **Keep the development key**: dongles already locked with it depend on it forever.
 5. Store the production private key **offline / outside git** with a backup. The current development key, and the Root CA private key, are tracked in git, which is acceptable for development only.
 
-**Losing a Command Key** means every dongle locked with it can only be recovered by a full device erase (license, identity and Black Box lost), unless its per-device access certificate folder survived.
+**Losing a Command Key** means every dongle locked with it can only be recovered by a full device erase (license and identity lost; the tamper log in the User Data page survives).
 
 ---
 
@@ -230,7 +225,7 @@ The lock does not change the USB serial channel at all. It only closes SWD.
 |---|---|---|---|
 | **Normal flash** (`flash.bat`, `set_*_mode.bat`) | Anyone; NVM3 (license, identity) is preserved | **Impossible** | Possible; works like (a) until reset |
 | **Re-provision** (`provision_dongle.py`) | Yes | Run `secure_debug_lock.py unlock` first (the preflight refuses a locked SWD port) | Yes |
-| **Device erase** | Yes | Yes, but it **wipes flash and RAM**: firmware, license, identity, Black Box | Yes |
+| **Device erase** | Yes | Yes, but it **wipes flash and RAM**: firmware, license, identity (the User Data page with the encrypted tamper log survives) | Yes |
 | **What survives an erase** | — | The Command Key in OTP: the chip stays bound to that key forever | Same |
 
 ### 6.4 Attack surface for reverse engineering
@@ -248,10 +243,9 @@ The lock does not change the USB serial channel at all. It only closes SWD.
 * **Stealing `debug_command_key.pem`.** This is the real weakness today: the development key is in git, so anyone with repository access can unlock every dongle locked with it. Production therefore gets a new key kept offline (section 5).
 
 **(c) Locked, then unlocked until reset:** the same as (a), but only until the next power-on reset or device reset. Getting there requires a valid unlock token:
-* Each token is bound to **this chip's serial number** and to a **one-time SE challenge**, so a recorded token is useless for replay or on another dongle.
-* However, the folder `keys/secure_debug/devices/device_<serial>/` holds `cert_key.pem` and `access_certificate.bin`, which are enough to unlock **that one dongle** without the Command Key. Protect that folder like the keys themselves.
+* Each token is bound to **this chip's serial number** and to its **current SE challenge**, so it is useless on another dongle. The challenge is not rolled, so a token would keep working on the same chip; keyadmin never stores it, and it exists only in the factory, in memory, during an unlock.
 * The window exists only while the dongle is in the lab. Once it resets, it is back in mode (b).
 
 **Bottom line:** (a) is never acceptable for a customer, because the dongle carries its own debugger. (b) is the shipping state. (c) is a service window that only the holder of the keys can open, and it closes on reset.
 
-> **Hardware verification status (2026-10-27, dongle `0000000000000000880F62FFFE3E183B`):** lock applied and verified (`CMD_KEY:MATCH`, `SECURE_DEBUG:1`, `LOCK_APPLIED:1`); challenge-response unlock accepted by the SE; SWD reads confirmed while unlocked (vector table at `0x08000000`, Black Box at `0x0817E000`). A pyOCD software reset did **not** close the port again; re-locking after a pin reset (RESET button) or a power-on reset with the battery disconnected is still to be confirmed.
+> **Hardware verification status (2026-10-27, dongle `0000000000000000880F62FFFE3E183B`):** lock applied and verified (`CMD_KEY:MATCH`, `SECURE_DEBUG:1`, `LOCK_APPLIED:1`); challenge-response unlock accepted by the SE; SWD reads confirmed while unlocked (vector table at `0x08000000`, Black Box at its old location `0x0817E000`, now moved to the User Data page `0x0FE00000`). A pyOCD software reset did **not** close the port again; re-locking after a pin reset (RESET button) or a power-on reset with the battery disconnected is still to be confirmed.

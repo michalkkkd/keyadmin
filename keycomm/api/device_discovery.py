@@ -86,7 +86,9 @@ def establish_dongle_connection(
     port: Optional[str] = None,
     keys_dir: Optional[str] = None,
     verbose: bool = True,
-    allow_unencrypted_admin: bool = False
+    allow_unencrypted_admin: bool = False,
+    *,
+    host_key: bytes
 ) -> Tuple[Optional[RpcProtocol], Optional[SerialTransport], bool]:
     """
     Connects to the KeySec Dongle, establishes the secure ECDHE session,
@@ -116,7 +118,7 @@ def establish_dongle_connection(
             print(f"[DEVICE_DISCOVERY] Opening SerialTransport on port '{port}' (baudrate 115200)...")
         transport = SerialTransport(port=port)
         rpc = RpcProtocol(transport)
-        sec_chan = SecureChannel(rpc, root_ca_path)
+        sec_chan = SecureChannel(rpc, root_ca_path, host_key)
 
         if verbose:
             print(f"[DEVICE_DISCOVERY] Initiating ECDHE Handshake with dongle...")
