@@ -1,8 +1,6 @@
 """
-Decoder for the dongle's sealed DIAG data (carried inside the diagnostic payload).
-Record: IV (16 B) + AES-128-CBC(256 B record), tamper log: IV + AES-128-CBC(1 KB User Data page), both encrypted
-by the dongle's Secure world with the Tamper Log Key (keyadmin/keys/tamper_log_key.bin).
-Layout: KeyFirmware src/core/diag_record.h (_Static_assert on the sizes).
+Decoder for the dongle record of the DIAG stream (section DIAG_SECTION_RECORD, already decrypted by
+diag_stream_decoder.py). Layout: KeyFirmware src/core/diag_record.h (_Static_assert on the size).
 """
 import struct
 import zlib
@@ -10,14 +8,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Tuple
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
 from keyadmin.core.constants import (
-    DIAG_SEALED_IV_LEN, DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_MAGIC,
-    DIAG_SEALED_FLAG_PROV, DIAG_SEALED_FLAG_LIVE_WIPE, DIAG_SEALED_FLAG_CERT, DIAG_SEALED_NO_TREND,
-    DIAG_USAGE_NAMES, DIAG_ERR_SEALED_LEN_FMT, DIAG_ERR_SEALED_INVALID,
+    DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_MAGIC, DIAG_SEALED_FLAG_PROV, DIAG_SEALED_FLAG_LIVE_WIPE,
+    DIAG_SEALED_FLAG_CERT, DIAG_SEALED_NO_TREND, DIAG_SESSION_ACTIVE, DIAG_USAGE_NAMES,
+    DIAG_ERR_SEALED_LEN_FMT, DIAG_ERR_SEALED_INVALID,
 )
-from keyadmin.secure_debug.tamper_log_decoder import type_name, parse as parse_tamper_log, TamperRecord
+from keyadmin.secure_debug.tamper_log_decoder import type_name
 
 # diag_sealed_record_t, field by field (packed, little-endian)
 RECORD_FIELDS = (
@@ -27,7 +23,7 @@ RECORD_FIELDS = (
     ("nvm_free", "I"), ("nvm_total", "I"), ("nvm_erase_count", "I"),
     ("eui64", "Q"), ("identity_fp", "8s"), ("cert_fp", "8s"),
     ("lic_remaining_days", "H"), ("lic_status", "B"), ("active_users", "B"), ("user_limit", "H"),
-    ("tamper_events", "H"), ("tamper_log_count", "B"), ("battery_pct", "B"), ("debug_lock", "B"), ("_r0", "B"),
+    ("tamper_events", "H"), ("tamper_log_count", "B"), ("battery_pct", "B"), ("debug_lock", "B"), ("session", "B"),
     ("tamper_counts", "10s"),
     ("vbat_now_mv", "H"), ("vbat_avg_mv", "H"), ("vbat_min_mv", "H"),
     ("vbat_trend_mv_10min", "h"), ("temp_x10", "h"), ("temp_min_x10", "h"), ("temp_max_x10", "h"),
@@ -41,7 +37,6 @@ RECORD_FORMAT = "<" + "".join(f for _, f in RECORD_FIELDS)
 RECORD_SIZE = struct.calcsize(RECORD_FORMAT)  # 256 = sixteen AES blocks
 ERROR_ENTRY_FORMAT = "<IB11s"                 # diag_error_entry_t
 ERROR_ENTRY_SIZE = struct.calcsize(ERROR_ENTRY_FORMAT)
-TLOG_PAGE_SIZE = 1024
 SECONDS_PER_DAY = 86400
 LICENSE_STATUS_NAMES = ("valid", "expired", "no license", "no clock (RTC)")  # license_status_code_t
 DEBUG_KEY_STATES = ("no key in OTP", "OTP key matches firmware", "OTP key MISMATCH")
@@ -98,6 +93,7 @@ class SealedRecord:
     tamper_log_count: int
     battery_pct: int
     debug_lock: int
+    session: int
     tamper_counts: Tuple[int, ...]
     vbat_now_mv: int
     vbat_avg_mv: int
@@ -125,13 +121,6 @@ class SealedRecord:
         return self.dongle_time - self.pc_time
 
 
-def _decrypt(data: bytes, key: bytes, plain_len: int) -> bytes:
-    if len(data) != DIAG_SEALED_IV_LEN + plain_len:
-        raise ValueError(DIAG_ERR_SEALED_LEN_FMT.format(size=len(data), expected=DIAG_SEALED_IV_LEN + plain_len))
-    decryptor = Cipher(algorithms.AES(key), modes.CBC(data[:DIAG_SEALED_IV_LEN])).decryptor()
-    return decryptor.update(data[DIAG_SEALED_IV_LEN:]) + decryptor.finalize()
-
-
 def _parse_errors(raw: bytes) -> List[CommandError]:
     errors = []
     for i in range(0, len(raw), ERROR_ENTRY_SIZE):
@@ -141,8 +130,9 @@ def _parse_errors(raw: bytes) -> List[CommandError]:
     return errors
 
 
-def decode_sealed(data: bytes, key: bytes) -> SealedRecord:
-    plain = _decrypt(data, key, RECORD_SIZE)
+def decode_record(plain: bytes) -> SealedRecord:
+    if len(plain) != RECORD_SIZE:
+        raise ValueError(DIAG_ERR_SEALED_LEN_FMT.format(size=len(plain), expected=RECORD_SIZE))
     values = struct.unpack(RECORD_FORMAT, plain)
     fields = {}
     i = 0
@@ -158,14 +148,9 @@ def decode_sealed(data: bytes, key: bytes) -> SealedRecord:
         raise ValueError(DIAG_ERR_SEALED_INVALID)
     fields["tamper_counts"] = tuple(fields["tamper_counts"])
     fields["errors"] = _parse_errors(fields["errors"])
-    for name in ("magic", "_r0", "_reserved", "crc32"):
+    for name in ("magic", "_reserved", "crc32"):
         del fields[name]
     return SealedRecord(**fields)
-
-
-def decode_sealed_tamper_log(data: bytes, key: bytes) -> TamperRecord:
-    """The sealed User Data page: outer CBC layer removed, then the usual per-entry ECB decoding."""
-    return parse_tamper_log(_decrypt(data, key, TLOG_PAGE_SIZE), key)
 
 
 def utc(ts: int) -> str:
@@ -204,6 +189,7 @@ def format_sealed_record(rec: SealedRecord) -> str:
         f"  Identity / cert : key {rec.identity_fp.hex().upper()}, certificate {cert}",
         f"  Firmware        : {fw} {build}, tamper wipe {wipe}, record v{rec.version}",
         f"  Debug lock      : {_debug_lock(rec.debug_lock)}",
+        f"  Session         : {'open (Host Key handshake worked)' if rec.session & DIAG_SESSION_ACTIVE else 'NONE'}",
         f"  Dongle time     : {utc(rec.dongle_time)}  (PC {utc(rec.pc_time)}, dongle {rec.clock_diff_s:+d} s)",
         f"  License         : {status}, {rec.lic_remaining_days} days left; start {utc(rec.lic_start)}, "
         f"{rec.lic_days} days, end {utc(lic_end)}",

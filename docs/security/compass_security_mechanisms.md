@@ -550,7 +550,7 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 | `MSG_SYS_HEALTH` | `0x10` | Status zdrowia / Anti-tamper | **Tak** | **No** (factory build only) | Odczyt sumy wykrytych zdarzeń tampera (TamperEvents), temperatury krzemu oraz liczby wpisów w trwałym logu tamperów (TamperLog: N). |
 | `MSG_GET_LOG_SIZE` | `0x11` | Rozmiar logów RAM | **Tak** | **Tak** | Zwraca długość bufora logów w pamięci RAM. |
 | `MSG_GET_LOG_CHUNK` | `0x12` | Odczyt fragmentu logu | **Tak** | **Tak** | Pobieranie fragmentu z 10 KB bufora cyklicznego logów. |
-| `MSG_DIAG` | `0x13` | Diagnostic snapshot | **Yes** | **Yes** | Secure route (session required, no license check): numbers only plus a record sealed with the Tamper Log Key. See [diagnostics.md](diagnostics.md). |
+| `MSG_DIAG_BEGIN` / `_DATA` / `_NEXT` | `0x13` / `0x14` / `0x17` | Diagnostic stream | **Yes** | **Yes** | No session needed: the PC sends its facts, the Secure world encrypts them together with the dongle data (AES-128-GCM, Tamper Log Key) and returns ciphertext only. See [diagnostics.md](diagnostics.md). |
 | `MSG_COMPASS_SIM_PK` | `0x15` | Symulacja PK | **Nie** (Odrzucona) | **Tak** | Obliczenia PK z kontrolą licencji i użytkowników. |
 | `MSG_VRX` | `0x16` | Weryfikacja i unieważnienie tokenu VRX | **Nie** (Odrzucona) | **Tak** | Sprzętowa rotacja tokenów VRX; atomowe zwieńczenie transakcji i unieważnienie tokenu. |
 | `MSG_SIM_PK_GI_*` | `0x30`-`0x33` | Symulacja Motility | **Nie** (Odrzucona) | **Tak** | Szyfrowany potok symulacji motoryki przewodu pokarmowego (JSON/chunks). |
@@ -560,7 +560,7 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 
 *(Uwaga: Wpis "Nie (Odrzucona)" oznacza, że dany kod rozkazu nie jest zarejestrowany w tablicy routera danej kompilacji i automatycznie zwraca błąd `ERR: Unknown command (ID)`).*
 
-**Szyfrowanie komend w wersji produkcyjnej:** `MSG_CHECK_LIC`, `MSG_VRX`, `MSG_COMPASS_USERS`, `MSG_GET_LOG_*`, `MSG_TEST_ADD`, `MSG_COMPASS_SIM_PK`, `MSG_SIM_PK_GI_*`, `MSG_SAFE_SPACE_*` i `MSG_SSP_*` wymagają aktywnej sesji: zapytanie, odpowiedź i błędy są szyfrowane AES-256-GCM z AAD (typ komendy, OK/ERR). Jawne są: `MSG_PING`, `MSG_HANDSHAKE_INIT` i `MSG_DEBUG_LOCK_*`, a w firmware fabrycznym także komendy admina oraz tekstowa diagnostyka (`MSG_SYS_HEALTH`, `MSG_BATTERY_INFO`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`, `MSG_DEBUG_TIME`). Production firmware answers diagnostics only through the encrypted `MSG_DIAG` ([diagnostics.md](diagnostics.md)).
+**Szyfrowanie komend w wersji produkcyjnej:** `MSG_CHECK_LIC`, `MSG_VRX`, `MSG_COMPASS_USERS`, `MSG_GET_LOG_*`, `MSG_TEST_ADD`, `MSG_COMPASS_SIM_PK`, `MSG_SIM_PK_GI_*`, `MSG_SAFE_SPACE_*` i `MSG_SSP_*` wymagają aktywnej sesji: zapytanie, odpowiedź i błędy są szyfrowane AES-256-GCM z AAD (typ komendy, OK/ERR). Jawne są: `MSG_PING`, `MSG_HANDSHAKE_INIT` i `MSG_DEBUG_LOCK_*`, a w firmware fabrycznym także komendy admina oraz tekstowa diagnostyka (`MSG_SYS_HEALTH`, `MSG_BATTERY_INFO`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`, `MSG_DEBUG_TIME`). Production firmware answers diagnostics only through the encrypted DIAG stream ([diagnostics.md](diagnostics.md)).
 
 ---
 

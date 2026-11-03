@@ -467,9 +467,32 @@ PROV_ERR_HEADER_MISMATCH_FMT  = "debug_command_pubkey.h does not match {path}; u
 
 # ==============================================================================
 # Dongle diagnostics: keyadmin decrypts and judges the report (Compass carries no meanings,
-# thresholds or keys to read it). Envelope format: keycomm/core/constants.py DIAG_ENVELOPE_*.
+# thresholds or keys to read it). Stream format: KeyFirmware src/core/diag_record.h.
 # ==============================================================================
-DIAG_REPORT_KEY_FILENAME    = "diag_report_key.pem"
+DIAG_STREAM_VERSION         = 1
+DIAG_STREAM_IV_LEN          = 12
+DIAG_STREAM_TAG_LEN         = 16
+DIAG_SECTION_HDR_FORMAT     = "<BI"
+DIAG_SECTION_PC             = 0x01
+DIAG_SECTION_RECORD         = 0x10
+DIAG_SECTION_TLOG           = 0x11
+DIAG_SECTION_RAMLOG         = 0x12
+DIAG_SESSION_ACTIVE         = 0x01
+
+DIAG_PASS                   = "PASS"
+DIAG_SKIP                   = "SKIP"
+DIAG_WARN_FMT               = "WARN_{n}"
+DIAG_FAIL_FMT               = "FAIL_{n}"
+DIAG_LINE_FMT               = "{code} -> {result}"
+
+# Checks judged from the PC facts (a payload exists, so the dongle was found, opened and answered)
+DIAG_CODE_ROOT_CA           = "KY_1"
+DIAG_CODE_HANDSHAKE         = "HS_1"
+DIAG_CODE_LINK              = "LK_1"
+
+# Developer run of the customer tool (keyadmin/scripts/run_customer_diag.py)
+DIAG_HELP_KEYS_DIR          = "Folder with root_ca_pub.pem (default: search next to the program)"
+DIAG_HELP_OUT_DIR           = "Folder for the report file (default: current folder)"
 
 DIAG_CODE_LICENSE           = "LI_1"
 DIAG_CODE_LICENSE_DAYS      = "LI_2"
@@ -508,13 +531,9 @@ RSTCAUSE_BROWNOUT_MASK      = (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 <<
 RSTCAUSE_SE_TAMPER_MASK     = 1 << 13
 
 DIAG_CODE_MEANINGS = {
-    "CO_1": "Dongle visible on USB (VID/PID)",
-    "CO_2": "COM port can be opened",
-    "PI_1": "Dongle answers PING",
     "KY_1": "root_ca_pub.pem found next to the program",
     "HS_1": "Secure handshake (dongle identity + Host Key)",
-    "FW_1": "Firmware returns the sealed DIAG record",
-    "LK_1": "USB link quality (10 PINGs + retransmissions)",
+    "LK_1": "USB link quality (retransmissions / timeouts of this run)",
     "LI_1": "License status",
     "LI_2": "License days left",
     "CL_1": "Dongle clock vs PC clock",
@@ -535,19 +554,10 @@ DIAG_CODE_MEANINGS = {
     "AP_1": "Compass crash report",
 }
 DIAG_RESULT_MEANINGS = {
-    "CO_1 FAIL_1": "no dongle found: not plugged in, charge-only cable, or no USB driver",
-    "CO_2 FAIL_1": "port busy: another program holds it (e.g. Compass still running)",
-    "CO_2 FAIL_2": "port cannot be opened (driver or USB error)",
-    "PI_1 FAIL_1": "no PONG: firmware not running, or dongle wiped",
-    "PI_1 FAIL_2": "port lost while connecting",
     "KY_1 FAIL_1": "root_ca_pub.pem missing in keys/ next to the program",
     "HS_1 FAIL_1": "handshake rejected: dongle not provisioned/wiped, wrong certificate or wrong Host Key",
-    "HS_1 FAIL_2": "handshake crashed (malformed reply)",
-    "FW_1 FAIL_1": "firmware too old: no DIAG command",
-    "FW_1 FAIL_2": "DIAG returned an error",
-    "FW_1 FAIL_3": "DIAG reply of another size: firmware older or newer than 1.4.0",
-    "LK_1 WARN_1": "commands needed retransmissions (poor USB link: hub, extension cable)",
-    "LK_1 FAIL_1": "PINGs lost",
+    "HS_1 FAIL_2": "handshake crashed (malformed reply), see the PC handshake text",
+    "LK_1 WARN_1": "commands needed retransmissions or timed out (poor USB link: hub, extension cable)",
     "LI_1 FAIL_1": "license expired",
     "LI_1 FAIL_2": "no license provisioned",
     "LI_1 FAIL_3": "no clock (RTC never set or wiped)",
@@ -575,7 +585,7 @@ DIAG_RESULT_MEANINGS = {
     "RS_2 FAIL_1": "Secure Engine tamper resets seen",
     "SE_1 WARN_1": "handshakes rejected (wrong Host Key, other program, or attack)",
     "SE_1 WARN_2": "requests that did not decrypt (session out of sync or tampering)",
-    "LK_2 WARN_1": "frames dropped for a bad checksum (USB noise)",
+    "LK_2 WARN_1": "frames dropped for a bad checksum (fast chunk bursts or USB noise)",
     "ID_1 FAIL_1": "no device certificate: not provisioned or wiped",
     "ID_1 FAIL_2": "no identity key: not provisioned or wiped",
     "DB_1 WARN_1": "debug lock not applied (development dongle?)",
@@ -588,9 +598,8 @@ DIAG_RESULT_MEANINGS = {
 DIAG_EXPLAIN_FMT            = "  {line:<16} {meaning}{detail}"
 DIAG_EXPLAIN_DETAIL_FMT     = "  [{detail}]"
 
-# Sealed record v4 (KeyFirmware src/core/diag_record.h, 256 bytes; field list in sealed_record_decoder.py)
-DIAG_SEALED_IV_LEN          = 16
-DIAG_SEALED_RECORD_VERSION  = 4
+# Dongle record v5 (KeyFirmware src/core/diag_record.h, 256 bytes; field list in sealed_record_decoder.py)
+DIAG_SEALED_RECORD_VERSION  = 5
 DIAG_SEALED_MAGIC           = 0xD1A6
 DIAG_SEALED_FLAG_PROV       = 0x01
 DIAG_SEALED_FLAG_LIVE_WIPE  = 0x02
@@ -601,8 +610,8 @@ DIAG_USAGE_NAMES = (
     "Test Add", "Compass Sim PK", "Sim PK & GI table", "Safe Space Estimates",
     "Safe Space Plots A", "Safe Space Plots B", "Safe Space Plots C",
 )
-DIAG_ERR_SEALED_LEN_FMT     = "Sealed record holds {size} bytes, expected {expected}"
-DIAG_ERR_SEALED_INVALID     = "Sealed record does not decrypt (wrong Tamper Log Key or another firmware format)"
+DIAG_ERR_SEALED_LEN_FMT     = "Dongle record holds {size} bytes, expected {expected}"
+DIAG_ERR_SEALED_INVALID     = "Dongle record is of another firmware format (magic, version or CRC)"
 DIAG_ERR_NO_PAYLOAD         = "No -----BEGIN KEY DIAG----- / -----END KEY DIAG----- block found"
-DIAG_ERR_PAYLOAD_INVALID    = "Payload does not decrypt (wrong Diag Report Key, damaged text, or another format)"
-DIAG_ERR_NO_REPORT_KEY_FMT  = "Diag Report Key not found: {path}. Run generate_diag_report_key.py first."
+DIAG_ERR_PAYLOAD_INVALID    = "Payload does not decrypt (wrong Tamper Log Key, damaged text, or another format)"
+DIAG_ERR_STREAM_FORMAT      = "Decrypted payload has a broken section layout"

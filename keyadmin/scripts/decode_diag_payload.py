@@ -1,6 +1,6 @@
 """
-Deciphers a customer's diagnostic payload (Compass.exe --diag / python -m keycomm.diag).
-Needs keyadmin/keys/diag_report_key.pem and keyadmin/keys/tamper_log_key.bin. No dongle needed.
+Deciphers a customer's diagnostic payload (Compass.exe --diag / run_customer_diag.py).
+Needs keyadmin/keys/tamper_log_key.bin (the dongle encrypted the payload with it). No dongle needed.
 
     python decode_diag_payload.py key_diag_20261103_171037.txt   # the report file
     python decode_diag_payload.py                                # paste the text, end with the END line
@@ -17,7 +17,7 @@ if REPO_ROOT not in sys.path:
 from keycomm.core.constants import DIAG_ARMOR_END
 from keyadmin.core.constants import ADMIN_PROMPT_DIAG_PASTE
 from keyadmin.secure_debug.tamper_log_decoder import load_key as load_tamper_log_key
-from keyadmin.secure_debug.diag_payload_decoder import extract_armored, open_payload, load_diag_report_key
+from keyadmin.secure_debug.diag_stream_decoder import extract_armored, open_stream
 from keyadmin.secure_debug.diag_support_report import format_support_report
 
 
@@ -33,8 +33,7 @@ def read_pasted_payload() -> str:
 
 
 def decipher(text: str) -> str:
-    payload = open_payload(extract_armored(text), load_diag_report_key())
-    return format_support_report(payload, load_tamper_log_key())
+    return format_support_report(open_stream(extract_armored(text), load_tamper_log_key()))
 
 
 def main() -> int:

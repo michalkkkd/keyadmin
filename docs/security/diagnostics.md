@@ -1,91 +1,81 @@
-# Dongle Diagnostics (`Compass.exe --diag`, DIAG command)
+# Dongle Diagnostics (`Compass.exe --diag`, DIAG stream)
 
-A customer calls with "the dongle does not work". **The customer runs the diagnostics themselves**: they close Compass (it holds the COM port) and run `Compass.exe --diag` from a console in the Compass folder. They need nothing else: no KeySec, no key files, no Python. The Host Key is built into Compass. The program prints one encrypted payload and saves the same text next to the exe as `key_diag_YYYYMMDD_HHMMSS.txt`:
+A customer calls with "the dongle does not work". **The customer runs the diagnostics themselves**: they close Compass (it holds the COM port) and run `Compass.exe --diag` from a console in the Compass folder. They need nothing else: no KeySec, no key files, no Python. The program prints one encrypted payload and saves the same text next to the exe as `key_diag_YYYYMMDD_HHMMSS.txt`:
 
 ```
-KEY DIAG 1 | 2026-11-03 17:47:30
-Collecting diagnostics ....... done
+KEY DIAG 4 | 2026-11-03 19:34:17
 Send the text below (or the report file) to support:
 -----BEGIN KEY DIAG-----
-AQRQZlxnl7YL3XX1RAJIfmUoa4Fv9xPc3EHOc9wtM6WbZ2fp3rAgepzJVoBuhjOt
+ATpqGoYt8cnk+/M3sk+WmJUQBXlxRHNBhcrlZXtuEwMMTbZpUdc7rHvPG+71rH27
 ...
 -----END KEY DIAG-----
-REPORT: C:\Compass\key_diag_20261103_174730.txt
+REPORT: C:\Compass\key_diag_20261103_193417.txt
 ```
 
-**100 % of the diagnostic information is encrypted.** The customer (or anyone holding Compass) sees no codes, values or results. Support deciphers it in KeySec admin, which needs no dongle:
+If the PC cannot talk to the dongle at all, there is nothing the dongle could encrypt. The program then prints one plain sentence and no payload. Those sentences say only what the customer can see anyway:
+* **The key was not found:** plug it in.
+* **The key cannot be opened:** close Compass or any other program using it.
+* **The key does not answer:** unplug it and plug it in again.
 
+Support deciphers the payload in KeySec admin, which needs no dongle:
 * keyadmin menu: **Decipher Diagnostic Payload (paste what the customer sent)**. Paste the text from `BEGIN` to `END`; mail quoting (`> `) and line breaks are tolerated.
-* or `python keyadmin/scripts/decode_diag_payload.py key_diag_20261103_174730.txt` (or without an argument, to paste the text).
+* or `python keyadmin/scripts/decode_diag_payload.py key_diag_20261103_193417.txt` (or without an argument, to paste the text).
 
-The deciphered view shows:
-* the PC: OS, COM ports with VID/PID, USB link stats;
-* every check with its internal meaning;
-* the raw error texts of failed steps;
-* the dongle record: firmware, clock, license, reset cause, users, NVM3, tamper counters, battery, temperature, algorithm run counters.
+**Dongle Diagnostics** in the keyadmin menu runs the same stream over the console's connection and shows the result right away. `python keyadmin/scripts/run_customer_diag.py [--out-dir temp]` runs the customer tool without Compass (factory Host Key).
 
-**Dongle Diagnostics** in the keyadmin menu shows the same view live for the connected dongle.
+## The dongle encrypts everything
 
-Developers can run the customer tool without Compass: `python -m keycomm.diag --host-key keyadmin/keys/host_key.pem [--out-dir temp]`.
+1. The PC (`keycomm/diag`) finds the port, connects and tries the Host Key handshake like Compass does. It then collects its own facts (below) and compresses them (zlib JSON).
+2. It sends them to the dongle: `MSG_DIAG_BEGIN` (PC time, length), then `MSG_DIAG_DATA` chunks of up to 640 bytes. The Secure world (`sec_diag.c`) encrypts them as they arrive, in one **AES-128-GCM stream** with the **Tamper Log Key** and a fresh IV from the SE TRNG.
+3. `MSG_DIAG_NEXT` makes the dongle append its own data to the same stream: the record, the whole tamper log page and its RAM log. These are fixed sizes (256 + 1024 + 4096 bytes), so the length of the payload says nothing either. The last reply ends with the GCM tag, which authenticates everything (PC part included).
+4. The PC only moves bytes. It has no key, encrypts nothing, judges nothing and cannot read the result. The Tamper Log Key is only in the dongle's Secure image and in `keyadmin/keys/tamper_log_key.bin`.
 
-## Two layers of encryption
+The DIAG commands need no session: every byte they return is ciphertext. Diagnostics therefore also work when the handshake fails (wiped or unprovisioned dongle, wrong Host Key), which is exactly when they are needed. The record then shows that no session was open.
 
-1. **The dongle seals its values** (`MSG_DIAG`, 0x13). The reply is nothing but `IV + AES-128-CBC(record)`, encrypted in the Secure world with the **Tamper Log Key**. That key is only in the Secure image and in `keyadmin/keys/tamper_log_key.bin`. On top of that, `MSG_DIAG` is a secure route: it needs a session opened with the Host Key, and the reply also travels inside the AES-256-GCM session. There is no license check, so it still works on an expired dongle. It reads only: it never registers a user, changes the clock or counts as a tamper event.
-2. **The PC encrypts the whole report** to the **Diag Report Key** (ECIES):
-   * an ephemeral P-256 ECDH, HKDF-SHA256 (`info` = label + ephemeral point) and AES-256-GCM over `zlib(JSON)`;
-   * the version byte and the point are the AAD;
-   * only the public half is in keycomm (`keycomm/diag/diag_report_pubkey.py`, generated). The private half is `keyadmin/keys/diag_report_key.pem` (`keyadmin/scripts/generate_diag_report_key.py`). The PC that made the payload cannot read it back.
+Stream layout (`src/core/diag_record.h`): header = version (1) | IV (12), then the ciphertext, then the tag (16). The AAD is the version byte. Plaintext sections are type (1) | length (`uint32` LE) | data:
+* `0x01`: PC facts;
+* `0x10`: dongle record;
+* `0x11`: tamper log page, its entries still ECB-encrypted as stored;
+* `0x12`: RAM log, zero-padded.
+
+Decoder: `keyadmin/secure_debug/diag_stream_decoder.py`.
 
 ## What the payload contains
 
-All of it is inside the encrypted envelope (JSON, zlib). A full payload is about 170 lines of base64, roughly 10 KB.
-
-| Key | Content | Source |
-| :--- | :--- | :--- |
-| `tool`, `time`, `utc` | Tool version, local and UTC time of the run | keycomm |
-| `pc` | keycomm version, Windows version, Python version, time zone and UTC offset, program path (user profile masked as `%USERPROFILE%`), exe size, modification time and SHA-256 prefix (identifies the exact Compass build) | `pc_info_collector.py` |
-| `ports` | Every COM port: VID/PID, description, manufacturer, USB serial, USB location (shows hubs), HWID | pyserial |
-| `processes` | Running programs that may hold the port (Compass, Python, terminals, flashing tools) and how many of each | `tasklist` |
-| `usb` | Windows driver of every USB interface of the dongle (name, provider, version, date, INF) | WMI |
-| `checks`, `errors`, `link` | Host check results, raw error text of each failed step, 10 PINGs / lost / retransmissions | `DiagnosticsRunner` |
-| `sealed` | Dongle record (below), sealed by the dongle | `MSG_DIAG` |
-| `tlog` | The whole persistent tamper log page (1 KB), sealed by the dongle | `MSG_DIAG_TLOG` |
-| `ramlog` | Dongle RAM log (last ~4 KB of events: heartbeat, sleep, wake-up) | `MSG_GET_LOG_*` |
-| `app` | Compass: compiled or not, USE_DEVICE, keys folder found; size and time of `log.json`, the last 300 dongle-related lines of it (XRouter / keycomm / license / VRX / gate / heartbeat; per-model timing stats left out); the end of the newest `run-*.log`; the end of `FATAL_CRASH_REPORT.txt` if present | `app/level_x/key_diag.py` |
+| Section | Content |
+| :--- | :--- |
+| PC facts | keycomm and tool version, local and UTC time, Windows and Python version, time zone, program path (user profile masked as `%USERPROFILE%`), exe size, time and SHA-256 prefix (identifies the Compass build), COM ports (VID/PID, USB serial, USB location showing hubs, HWID), programs that may hold the port, Windows drivers of the dongle's USB interfaces, `root_ca_pub.pem` found, handshake result text, retransmissions / timeouts of the run |
+| PC facts / `app` | Compass: compiled or not, USE_DEVICE, keys folder found; size and time of `log.json` and its last 300 dongle-related lines (per-model timing stats left out); the end of the newest `run-*.log`; the end of `FATAL_CRASH_REPORT.txt` if present (`compass/app/level_x/key_diag.py`) |
+| Dongle record | see [record](#dongle-record-v5) |
+| Tamper log | the persistent User Data page (64 entries) |
+| RAM log | the dongle's last ~4 KB of events (heartbeat, sleep, wake-up) |
 
 **Privacy:**
-* E-mail addresses in the Compass logs are replaced by `<user1>`, `<user2>` and so on, consistently within one report, so support can follow one user without knowing who it is.
+* E-mail addresses in the Compass logs are replaced by `<user1>`, `<user2>` and so on, consistently within one report.
 * The computer name and the Windows user name are not collected.
 
-The tamper log page is sealed as a whole, with a fresh IV, for one reason: on its own, the number of non-blank (still ECB-encrypted) slots would reveal how many tamper events were logged.
+## What ships to the customer
 
-## Threat model
+`keycomm/diag` holds only three modules:
+* `diag_tool.py`: `run_diagnostics()`, `pc_facts()`, `seal_on_dongle()`, armor and report file;
+* `diag_stream.py`: moves the PC facts to the dongle and the ciphertext back;
+* `pc_info_collector.py`: the PC facts.
 
-Even with Compass fully reverse-engineered (Host Key extracted), an attacker gets nothing that helps:
-* **Nothing readable in Compass.** The check meanings, the thresholds and the evaluation of the dongle values live only in KeySec admin (`keyadmin/core/constants.py`, `keyadmin/secure_debug/diag_evaluator.py`).
-* **The dongle answers `MSG_DIAG` with the sealed record only.** An attacker who calls it directly gets ciphertext. They cannot use it as feedback, for example by watching tamper counters or the reset cause after a glitch attempt.
-* **The production firmware answers no plaintext diagnostics.** `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`).
-* **PC5/PC6 tamper events send no `SECURITY ALERT` log over USB in production** (`tamper_simulation.c`, factory build only). The event is still written to the encrypted tamper log. The LED still lights for 1 s.
+There is no key, cipher, check code, threshold or meaning in it. Everything that reads or judges is in keyadmin:
+* `secure_debug/diag_stream_decoder.py`, `sealed_record_decoder.py`, `diag_host_evaluator.py`, `diag_evaluator.py`, `diag_support_report.py`;
+* the meanings in `keyadmin/core/constants.py`.
 
-What the sealed record would tell an attacker, and why each part stays encrypted:
-* **Tamper counters per type and the log size** are a detection oracle: they show whether an attempt was seen and by which detector.
-* **The live-wipe flag** tells whether crossing a threshold destroys the device.
-* **The clock internals** reveal the 60 s checkpoint and the 150 s reset penalty.
-* **The reset cause** is feedback for glitch tuning.
+Production firmware answers no plaintext diagnostics. `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`). PC5/PC6 tamper events send no `SECURITY ALERT` log over USB in production (`tamper_simulation.c`). The event is still written to the encrypted tamper log, and the LED still lights for 1 s.
 
 ## Check codes (internal, shown only after deciphering)
 
-Checks made on the PC. When a step fails, the later ones are `SKIP`. `LK_1` runs whenever a session exists.
+A payload exists, so the PC found the dongle, opened the port and the dongle answered. These checks are judged from the PC facts:
 
 | Code | Checks | Results |
 | :--- | :--- | :--- |
-| `CO_1` | Dongle visible on USB (VID/PID) | `FAIL_1` not found: not plugged in, charge-only cable, no driver |
-| `CO_2` | COM port can be opened | `FAIL_1` port busy (Compass still running), `FAIL_2` other open error |
-| `PI_1` | Dongle answers PING | `FAIL_1` no PONG (firmware not running / wiped), `FAIL_2` port lost |
 | `KY_1` | `root_ca_pub.pem` found | `FAIL_1` missing in `keys/` next to the program |
-| `HS_1` | Secure handshake | `FAIL_1` rejected (not provisioned / wiped, wrong certificate or Host Key), `FAIL_2` malformed reply |
-| `FW_1` | Firmware returns the sealed record | `FAIL_1` firmware without DIAG, `FAIL_2` DIAG error, `FAIL_3` reply of another size (firmware other than 1.4.0) |
-| `LK_1` | USB link: 10 PINGs + retransmissions | `WARN_1` retransmissions needed (hub, extension cable), `FAIL_1` PINGs lost |
+| `HS_1` | Secure handshake (record: session open) | `FAIL_1` rejected (not provisioned / wiped, wrong certificate or Host Key), `FAIL_2` handshake crashed (see the PC handshake text) |
+| `LK_1` | USB link during the run | `WARN_1` retransmissions or timeouts (hub, extension cable) |
 
 Checks judged by keyadmin from the decrypted dongle record (and `AP_1` from the Compass part):
 
@@ -102,7 +92,7 @@ Checks judged by keyadmin from the decrypted dongle record (and `AP_1` from the 
 | `TA_1` | Tamper events | `WARN_1` events since boot, `WARN_2` entries in the persistent tamper log |
 | `RS_2` | Abnormal resets since provisioning | `FAIL_1` SE tamper, `WARN_1` brown-out, `WARN_2` watchdog, `WARN_3` lockup |
 | `SE_1` | Secure session problems since boot | `WARN_1` handshakes rejected, `WARN_2` requests that did not decrypt |
-| `LK_2` | Corrupted USB frames since boot | `WARN_1` frames dropped for a bad TinyFrame checksum |
+| `LK_2` | Corrupted USB frames since boot | `WARN_1` frames dropped for a bad TinyFrame checksum. Fast chunk bursts (large Safe Space transfers, retried by the host) can cause a few; wake-ups from EM3 do not |
 | `ID_1` | Identity and certificate | `FAIL_1` no certificate, `FAIL_2` no identity key (not provisioned / wiped) |
 | `DB_1` | Debug port (SWD) lock | `WARN_1` lock not applied, `WARN_2` lock applied but unlocked until the next reset |
 | `ER_1` | Failed dongle commands | `WARN_1` at least one of the last 4 secure commands failed (listed with time and error) |
@@ -129,7 +119,7 @@ The Secure world counts how many times each algorithm of `src/prod/logic` ran (`
 | 6 | Safe Space Plots C | `cmd_ssp_c_process` (once per formulation and medium) |
 
 * The counters are kept in RAM and written to Secure NVM3 (key `0x40030`) at most once per 60 s, from the same housekeeping call as the license clock. This bounds flash wear whatever the usage; a reset loses at most the runs of the last 60 s.
-* Non-Secure code has no NSC entry to change them. They leave the dongle only inside the sealed record.
+* Non-Secure code has no NSC entry to change them. They leave the dongle only inside the encrypted DIAG stream.
 * A wipe (provisioning, admin wipe, tamper wipe) clears NVM3 and starts them from zero.
 
 ## Lifetime and session counters
@@ -138,26 +128,42 @@ The Secure world counts how many times each algorithm of `src/prod/logic` ran (`
 * **Since boot, in RAM:** handshakes rejected and requests that did not decrypt (counted in the NSC gates); TinyFrame frames with a bad checksum (`tf_rx_cksum_errors` in the Non-Secure `TinyFrame.c`); minimum battery voltage and min / max temperature (60 s samples).
 * **Last 4 failed secure commands**, newest first: dongle time, command, the first 11 characters of the error with the `ERR: ` prefix removed. They are recorded by the Non-Secure router (`diag_stats.c`) for every secure route that answers with an error, including chunk errors.
 
-## `MSG_DIAG` wire format
+## Dongle record v5
 
-Request: PC UNIX time, `uint32` little-endian (4 bytes). Reply: hex of `IV (16 B) + AES-128-CBC(record, 256 B)`, nothing else.
-
-`MSG_DIAG_TLOG` (0x14, secure route): request = byte offset (`uint16` LE) into the sealed tamper log (`IV + AES-128-CBC(1 KB page)`, 1040 B). The reply is up to 700 bytes as hex, and is empty past the end. Offset 0 seals a fresh copy with a new IV.
-
-Sealed record v4 (`src/core/diag_record.h`, `_Static_assert` size 256, little-endian, packed; the field list is mirrored in `RECORD_FIELDS` in the decoder):
-* `magic 0xD1A6`, version 4, flags (provisioning build, tamper live wipe, certificate present);
+`src/core/diag_record.h`, `_Static_assert` size 256, little-endian, packed; the field list is mirrored in `RECORD_FIELDS` in `sealed_record_decoder.py`:
+* `magic 0xD1A6`, version 5, flags (provisioning build, tamper live wipe, certificate present);
 * firmware version, PC time, dongle time, license start / days, clock at boot, last NVM3 checkpoint, uptime, raw reset cause, NVM3 free / total / erase count;
 * chip EUI64, identity key and certificate fingerprints (SHA-256, first 8 bytes);
-* license days left / status, active users, user limit, tamper events since boot, tamper log entries, battery %, debug lock flags, 10 tamper type counters;
+* license days left / status, active users, user limit, tamper events since boot, tamper log entries, battery %, debug lock flags, session flags (session open during DIAG), 10 tamper type counters;
 * battery now / average / minimum / trend, temperature now / minimum / maximum;
 * 7 algorithm run counters, lifetime boots and 7 reset-cause counters, handshakes rejected, decrypt failures, bad-checksum frames;
 * 4 error entries (16 B: time, command, 11 characters), 24 reserved bytes, CRC-32 (zlib).
 
-Decoder: `keyadmin/secure_debug/sealed_record_decoder.py`.
+## Wire format
+
+| Command | Request | Reply (hex) |
+| :--- | :--- | :--- |
+| `MSG_DIAG_BEGIN` (0x13) | PC time (`uint32` LE), PC data length (`uint32` LE, max 64 KB) | stream header (version, IV) |
+| `MSG_DIAG_DATA` (0x14) | next PC data chunk, 1..640 bytes, in order | ciphertext released so far (may be empty) |
+| `MSG_DIAG_NEXT` (0x17) | none | `00` + ciphertext, or `01` + last ciphertext + GCM tag |
+
+Any error answers `ERR: DIAG stream failed (start again)` and aborts the stream. The host sends each command once, with no retry, because a resent chunk would be encrypted twice. It restarts the whole stream instead, up to 3 times.
 
 ## Files
 
-* Firmware: `src/core/diag_router.c` (NS, `cmd_diag`, `cmd_diag_tlog`), `src/core/diag_stats.c` (NS: error ring, min / max), `src/secure/sec_diag.c` (reset cause and lifetime counters, record, sealing of record and tamper log), `src/core/usage_counters.c` (Secure, run counters), `src/core/diag_record.h`, `src/core/fw_version.h`, `src/admin/admin_diag_router.c` (plaintext reports, factory build only). Routes `MSG_DIAG` / `MSG_DIAG_TLOG` in `prod_router.c` and `admin_router.c`.
-* keycomm (ships with Compass): `keycomm/diag/` (`run_diagnostics`, `DiagnosticsRunner`, `PcInfoCollector`, `DiagReport`, `DiagEnvelope`, `diag_report_pubkey.py`), `CompassApi.get_diagnostics()`.
-* keyadmin: `scripts/decode_diag_payload.py`, `scripts/generate_diag_report_key.py`, `secure_debug/diag_payload_decoder.py`, `sealed_record_decoder.py`, `diag_evaluator.py`, `diag_support_report.py`, menu actions **Dongle Diagnostics** and **Decipher Diagnostic Payload**.
-* Compass: `run_compass.py --diag` and `app/level_x/key_diag.py` (app part of the payload); `SafeFileManager.read_text_tail()` reads the end of the large `log.json`.
+* Firmware:
+  * `src/core/diag_router.c` (NS: the three commands, snapshot of the record inputs and RAM log at begin);
+  * `src/core/diag_stats.c` (NS: error ring, min / max);
+  * `src/secure/sec_diag.c` (reset cause and lifetime counters, record, GCM stream);
+  * `src/core/usage_counters.c` (Secure, run counters);
+  * `src/core/diag_record.h`, `src/core/fw_version.h` (1.5.0);
+  * `src/admin/admin_diag_router.c` (plaintext reports, factory build only).
+* keycomm (ships with Compass): `keycomm/diag/` (`diag_tool.py`, `diag_stream.py`, `pc_info_collector.py`).
+* keyadmin:
+  * `scripts/decode_diag_payload.py`, `scripts/run_customer_diag.py`;
+  * `secure_debug/diag_stream_decoder.py`, `sealed_record_decoder.py`, `diag_host_evaluator.py`, `diag_evaluator.py`, `diag_support_report.py`;
+  * menu actions **Dongle Diagnostics** and **Decipher Diagnostic Payload**.
+* Compass:
+  * `run_compass.py --diag`;
+  * `app/level_x/key_diag.py` (Compass part of the PC facts);
+  * `SafeFileManager.read_text_tail()`, which reads the end of the large `log.json`.

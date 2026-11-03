@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import sys
 import time
@@ -12,10 +14,9 @@ from keyadmin.secure_debug.secure_debug_store import SecureDebugStore
 from keyadmin.scripts.provision_dongle import DongleProvisioner
 from keyadmin.admin_factory import init_admin_device
 from datetime import datetime
-from keycomm.diag.diagnostics_runner import DiagnosticsRunner
-from keycomm.diag.diag_report import DiagReport
-from keycomm.diag.diag_run_outcome import DiagRunOutcome
+from keycomm.diag.diag_tool import pc_facts, seal_on_dongle
 from keyadmin.secure_debug.tamper_log_decoder import load_key as load_tamper_log_key
+from keyadmin.secure_debug.diag_stream_decoder import open_stream
 from keyadmin.secure_debug.diag_support_report import format_support_report
 from keyadmin.scripts.decode_diag_payload import read_pasted_payload, decipher
 from keyadmin.core.constants import (
@@ -407,10 +408,11 @@ class KeySecMenu:
             print(f"[-] {e}")
 
     def _show_dongle_diagnostics(self) -> None:
-        """The dongle part of Compass.exe --diag on this session, shown as support would see it (no envelope)."""
-        outcome: DiagRunOutcome = DiagnosticsRunner.read_dongle(self.rpc, progress=lambda: None)
-        payload = DiagReport(datetime.now()).payload(outcome)
-        print(format_support_report(payload, load_tamper_log_key()))
+        """Same stream as Compass.exe --diag over this console's connection, deciphered right away."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            facts = pc_facts(self.rpc, datetime.now(), root_ca="keyadmin", handshake="", app_info=None)
+            sealed = seal_on_dongle(self.rpc, facts)
+        print(format_support_report(open_stream(sealed, load_tamper_log_key())))
 
     def _decipher_diag_payload(self) -> None:
         """Payload a customer sent (Compass.exe --diag), pasted into the console; needs no dongle."""

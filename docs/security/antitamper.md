@@ -166,7 +166,7 @@ Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie z
   * PC5 / PC6 events: in the factory provisioning firmware `tamper_simulation.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. In both builds the LED lights for 1 s.
   * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`).
   * `MSG_SYS_HEALTH` (`0x10`, factory provisioning firmware only): `TamperEvents:<total>, Temp:<t>, TamperLog:<entries in the persistent log>`.
-  * Production firmware: the tamper counters reach the host only inside the record sealed with the Tamper Log Key (`MSG_DIAG`, [diagnostics.md](diagnostics.md)), readable by KeySec admin only.
+  * Production firmware: the tamper counters and the tamper log page reach the host only inside the DIAG stream that the dongle encrypts with the Tamper Log Key ([diagnostics.md](diagnostics.md)), readable by KeySec admin only.
 * **Trwały log zdarzeń**: każde zdarzenie tamper jest zapisywane, zaszyfrowane AES, na **stronie User Data `0x0FE00000`**, która przetrwa kasowanie. Wpis zdarzenia, które osiągnęło próg, ma flagę WIPE. Zob. [Trwały log tamper](#trwały-log-tamper-strona-user-data). Stary rekord Black Box (192 B, zapisywany jednorazowo po osiągnięciu progu) został usunięty: log zawiera już zdarzenie wyzwalające, jego czas i temperaturę.
 
 ### Reakcja po osiągnięciu progu

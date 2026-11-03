@@ -5,7 +5,7 @@ from typing import Optional
 
 from keycomm.core.protocol import RpcProtocol
 from keycomm.core.constants import (
-    MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS, MSG_VRX, MSG_DIAG,
+    MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS, MSG_VRX,
     RESP_REQ_BYTES, ERR_NO_EMAIL,
     CHAR_ENCODING_UTF8, BYTEORDER_LITTLE, RESP_OK_PREFIX, STATUS_OK,
     STATUS_FAILED_FMT, LOGGER_NAME_KEYCOMM_API,
@@ -79,10 +79,6 @@ class CompassApi:
         if not ok:
             logger.warning(LOG_FMT_VRX_REJECTED.format(res=res))
         return ok
-
-    def get_diagnostics(self, pc_time: int) -> str:
-        """Sealed DIAG record (hex), readable only by KeySec admin (keyadmin sealed_record_decoder)."""
-        return self.rpc.execute_command(MSG_DIAG, int(pc_time).to_bytes(4, byteorder=BYTEORDER_LITTLE))
 
     def get_max_users(self) -> str:
         res = self.rpc.execute_command(MSG_COMPASS_USERS, RESP_REQ_BYTES)
