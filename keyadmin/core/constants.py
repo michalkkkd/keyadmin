@@ -35,6 +35,8 @@ ACTION_DEVICE_LOGS     = 9
 ACTION_HB_START        = 10
 ACTION_HB_DISABLE      = 14
 ACTION_BATTERY_STATUS  = 16
+ACTION_DONGLE_DIAG     = 17
+ACTION_DECIPHER_DIAG   = 18
 ACTION_DEBUG_LOCK_STATUS = 20
 ACTION_DEBUG_LOCK_APPLY  = 21
 ACTION_DEBUG_UNLOCK      = 22
@@ -61,6 +63,8 @@ ADMIN_ACT_MEMORY       = "Memory & NVM3 Diagnostics"
 ADMIN_ACT_RTC          = "Detailed Global RTC Diagnostics"
 ADMIN_ACT_LICENSE      = "Check License & User Limits"
 ADMIN_ACT_LOGS         = "View Async Device Logs"
+ADMIN_ACT_DONGLE_DIAG  = "Dongle Diagnostics (this dongle, works on production firmware)"
+ADMIN_ACT_DECIPHER_DIAG = "Decipher Diagnostic Payload (paste what the customer sent)"
 ADMIN_ACT_BENCHMARK    = "Run Performance Benchmark (Algorithm Test)"
 ADMIN_ACT_HB_START     = "Start sending heartbeat"
 ADMIN_ACT_HB_DISABLE   = "Disable heartbeat for 20 seconds"
@@ -84,6 +88,9 @@ ADMIN_HDR_DEBUG_STATUS = "--- Secure Debug Lock Status ---"
 ADMIN_HDR_DEBUG_LOCK   = "--- Apply Secure Debug Lock ---"
 ADMIN_HDR_DEBUG_UNLOCK = "--- Secure Debug Unlock (until next reset) ---"
 ADMIN_HDR_PROVISION    = "--- Provision Dongle (factory pipeline) ---"
+ADMIN_HDR_DONGLE_DIAG  = "--- Dongle Diagnostics (DIAG) ---"
+ADMIN_HDR_DECIPHER_DIAG = "--- Decipher Diagnostic Payload ---"
+ADMIN_PROMPT_DIAG_PASTE = "Paste the payload from -----BEGIN KEY DIAG----- to -----END KEY DIAG----- (or the whole report):"
 
 # Security Alerts & Notifications
 ADMIN_ALERT_TAMPER     = (
@@ -457,3 +464,145 @@ PROV_ERR_DONGLE_LOCKED_FMT    = "dongle {serial} has SWD locked; run 'secure_deb
 PROV_ERR_DONGLE_PROTECTED_FMT = "dongle {serial} is protected; --lock would be refused after provisioning"
 PROV_ERR_HEADER_NOT_PROVISIONED = "debug_command_pubkey.h has no key; run generate_debug_command_key.py"
 PROV_ERR_HEADER_MISMATCH_FMT  = "debug_command_pubkey.h does not match {path}; unlock would be impossible. Run generate_debug_command_key.py --header-only"
+
+# ==============================================================================
+# Dongle diagnostics: keyadmin decrypts and judges the report (Compass carries no meanings,
+# thresholds or keys to read it). Envelope format: keycomm/core/constants.py DIAG_ENVELOPE_*.
+# ==============================================================================
+DIAG_REPORT_KEY_FILENAME    = "diag_report_key.pem"
+
+DIAG_CODE_LICENSE           = "LI_1"
+DIAG_CODE_LICENSE_DAYS      = "LI_2"
+DIAG_CODE_CLOCK             = "CL_1"
+DIAG_CODE_USERS             = "UL_1"
+DIAG_CODE_BATTERY           = "BA_1"
+DIAG_CODE_TEMPERATURE       = "TE_1"
+DIAG_CODE_NVM               = "NV_1"
+DIAG_CODE_RESET_CAUSE       = "RS_1"
+DIAG_CODE_TAMPER            = "TA_1"
+DIAG_CODE_RESET_HISTORY     = "RS_2"
+DIAG_CODE_SESSION           = "SE_1"
+DIAG_CODE_FRAMES            = "LK_2"
+DIAG_CODE_IDENTITY          = "ID_1"
+DIAG_CODE_DEBUG_LOCK        = "DB_1"
+DIAG_CODE_CMD_ERRORS        = "ER_1"
+DIAG_CODE_BATTERY_DIP       = "BA_2"
+DIAG_CODE_TEMP_RANGE        = "TE_2"
+DIAG_CODE_APP_CRASH         = "AP_1"
+DIAG_BATTERY_DIP_MV         = 3610   # 5 % on the LiPo curve (battery_monitor.c)
+
+DIAG_LICENSE_DAYS_WARN      = 30
+DIAG_CLOCK_WARN_S           = 3600
+DIAG_CLOCK_BAD_S            = 86400
+DIAG_BATTERY_LOW_PCT        = 20
+DIAG_BATTERY_CRITICAL_PCT   = 10
+DIAG_BATTERY_UNKNOWN_PCT    = 255
+DIAG_TEMP_OK_MIN_X10        = 0
+DIAG_TEMP_OK_MAX_X10        = 500
+DIAG_TEMP_LIMIT_MIN_X10     = -100
+DIAG_TEMP_LIMIT_MAX_X10     = 700
+DIAG_NVM_FREE_WARN_PCT      = 10
+RSTCAUSE_WDOG_MASK          = (1 << 3) | (1 << 4)
+RSTCAUSE_LOCKUP_MASK        = 1 << 5
+RSTCAUSE_BROWNOUT_MASK      = (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11)
+RSTCAUSE_SE_TAMPER_MASK     = 1 << 13
+
+DIAG_CODE_MEANINGS = {
+    "CO_1": "Dongle visible on USB (VID/PID)",
+    "CO_2": "COM port can be opened",
+    "PI_1": "Dongle answers PING",
+    "KY_1": "root_ca_pub.pem found next to the program",
+    "HS_1": "Secure handshake (dongle identity + Host Key)",
+    "FW_1": "Firmware returns the sealed DIAG record",
+    "LK_1": "USB link quality (10 PINGs + retransmissions)",
+    "LI_1": "License status",
+    "LI_2": "License days left",
+    "CL_1": "Dongle clock vs PC clock",
+    "UL_1": "Active users limit",
+    "BA_1": "Battery level",
+    "TE_1": "MCU temperature",
+    "NV_1": "NVM3 free space",
+    "RS_1": "Cause of the last reset",
+    "TA_1": "Tamper events",
+    "RS_2": "Abnormal resets since provisioning",
+    "SE_1": "Secure session problems since boot",
+    "LK_2": "Corrupted USB frames since boot",
+    "ID_1": "Dongle identity and certificate",
+    "DB_1": "Debug port (SWD) lock",
+    "ER_1": "Failed dongle commands (last 4 kept)",
+    "BA_2": "Lowest battery voltage since boot",
+    "TE_2": "Temperature range since boot",
+    "AP_1": "Compass crash report",
+}
+DIAG_RESULT_MEANINGS = {
+    "CO_1 FAIL_1": "no dongle found: not plugged in, charge-only cable, or no USB driver",
+    "CO_2 FAIL_1": "port busy: another program holds it (e.g. Compass still running)",
+    "CO_2 FAIL_2": "port cannot be opened (driver or USB error)",
+    "PI_1 FAIL_1": "no PONG: firmware not running, or dongle wiped",
+    "PI_1 FAIL_2": "port lost while connecting",
+    "KY_1 FAIL_1": "root_ca_pub.pem missing in keys/ next to the program",
+    "HS_1 FAIL_1": "handshake rejected: dongle not provisioned/wiped, wrong certificate or wrong Host Key",
+    "HS_1 FAIL_2": "handshake crashed (malformed reply)",
+    "FW_1 FAIL_1": "firmware too old: no DIAG command",
+    "FW_1 FAIL_2": "DIAG returned an error",
+    "FW_1 FAIL_3": "DIAG reply of another size: firmware older or newer than 1.4.0",
+    "LK_1 WARN_1": "commands needed retransmissions (poor USB link: hub, extension cable)",
+    "LK_1 FAIL_1": "PINGs lost",
+    "LI_1 FAIL_1": "license expired",
+    "LI_1 FAIL_2": "no license provisioned",
+    "LI_1 FAIL_3": "no clock (RTC never set or wiped)",
+    "LI_2 WARN_1": "30 days or less left",
+    "CL_1 WARN_1": "dongle clock off by more than 1 hour",
+    "CL_1 WARN_2": "dongle clock off by more than 1 day",
+    "UL_1 FAIL_1": "user limit is 0 (not provisioned)",
+    "UL_1 WARN_1": "user limit full right now (users active in the last 10 min)",
+    "BA_1 WARN_1": "battery below 20 %",
+    "BA_1 FAIL_1": "battery below 10 %",
+    "BA_1 FAIL_2": "battery read failed (ADC)",
+    "TE_1 WARN_1": "temperature outside 0..50 C",
+    "TE_1 FAIL_1": "temperature outside -10..70 C (tamper range)",
+    "NV_1 WARN_1": "NVM3 less than 10 % free",
+    "NV_1 FAIL_1": "NVM3 stats unavailable",
+    "RS_1 FAIL_1": "Secure Engine tamper reset",
+    "RS_1 WARN_1": "brown-out reset (supply voltage dropped)",
+    "RS_1 WARN_2": "watchdog reset (firmware hung)",
+    "RS_1 WARN_3": "CPU lockup reset (hard fault)",
+    "TA_1 WARN_1": "tamper events since boot",
+    "TA_1 WARN_2": "entries in the persistent tamper log (earlier events or a wipe)",
+    "RS_2 WARN_1": "brown-out resets seen (supply drops: cable, hub, battery)",
+    "RS_2 WARN_2": "watchdog resets seen (firmware hung)",
+    "RS_2 WARN_3": "CPU lockup resets seen (hard faults)",
+    "RS_2 FAIL_1": "Secure Engine tamper resets seen",
+    "SE_1 WARN_1": "handshakes rejected (wrong Host Key, other program, or attack)",
+    "SE_1 WARN_2": "requests that did not decrypt (session out of sync or tampering)",
+    "LK_2 WARN_1": "frames dropped for a bad checksum (USB noise)",
+    "ID_1 FAIL_1": "no device certificate: not provisioned or wiped",
+    "ID_1 FAIL_2": "no identity key: not provisioned or wiped",
+    "DB_1 WARN_1": "debug lock not applied (development dongle?)",
+    "DB_1 WARN_2": "debug port open right now (lock applied, unlocked until reset)",
+    "ER_1 WARN_1": "dongle commands failed recently, see Last errors",
+    "BA_2 WARN_1": "battery dropped below ~5 % since boot",
+    "TE_2 WARN_1": "temperature left 0..50 C since boot",
+    "AP_1 WARN_1": "Compass wrote a crash report (FATAL_CRASH_REPORT.txt)",
+}
+DIAG_EXPLAIN_FMT            = "  {line:<16} {meaning}{detail}"
+DIAG_EXPLAIN_DETAIL_FMT     = "  [{detail}]"
+
+# Sealed record v4 (KeyFirmware src/core/diag_record.h, 256 bytes; field list in sealed_record_decoder.py)
+DIAG_SEALED_IV_LEN          = 16
+DIAG_SEALED_RECORD_VERSION  = 4
+DIAG_SEALED_MAGIC           = 0xD1A6
+DIAG_SEALED_FLAG_PROV       = 0x01
+DIAG_SEALED_FLAG_LIVE_WIPE  = 0x02
+DIAG_SEALED_FLAG_CERT       = 0x04
+DIAG_SEALED_NO_TREND        = -32768
+# Same order as usage_counter_t in KeyFirmware src/core/usage_counters.h
+DIAG_USAGE_NAMES = (
+    "Test Add", "Compass Sim PK", "Sim PK & GI table", "Safe Space Estimates",
+    "Safe Space Plots A", "Safe Space Plots B", "Safe Space Plots C",
+)
+DIAG_ERR_SEALED_LEN_FMT     = "Sealed record holds {size} bytes, expected {expected}"
+DIAG_ERR_SEALED_INVALID     = "Sealed record does not decrypt (wrong Tamper Log Key or another firmware format)"
+DIAG_ERR_NO_PAYLOAD         = "No -----BEGIN KEY DIAG----- / -----END KEY DIAG----- block found"
+DIAG_ERR_PAYLOAD_INVALID    = "Payload does not decrypt (wrong Diag Report Key, damaged text, or another format)"
+DIAG_ERR_NO_REPORT_KEY_FMT  = "Diag Report Key not found: {path}. Run generate_diag_report_key.py first."

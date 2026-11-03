@@ -5,7 +5,7 @@ from typing import Optional
 
 from keycomm.core.protocol import RpcProtocol
 from keycomm.core.constants import (
-    MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS, MSG_VRX,
+    MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS, MSG_VRX, MSG_DIAG,
     RESP_REQ_BYTES, ERR_NO_EMAIL,
     CHAR_ENCODING_UTF8, BYTEORDER_LITTLE, RESP_OK_PREFIX, STATUS_OK,
     STATUS_FAILED_FMT, LOGGER_NAME_KEYCOMM_API,
@@ -61,7 +61,9 @@ class CompassApi:
         token = int(vrx_token)
         self.last_vrx_token = 0
         payload = self.user_hash.to_bytes(4, byteorder=BYTEORDER_LITTLE) + token.to_bytes(4, byteorder=BYTEORDER_LITTLE)
-        res = self.rpc.execute_command(MSG_VRX, payload)
+        # Sent exactly once: the dongle consumes the token, so a resend after a lost reply would be
+        # counted as a VRX_MISMATCH tamper strike. A lost reply fails here instead, on the host side.
+        res = self.rpc.execute_command(MSG_VRX, payload, max_retries=1)
         # Only a MSG_OK response counts: it is decrypted and its OK status is authenticated (AAD).
         # A plaintext error frame can never produce this prefix, whatever text it carries.
         ok = res.startswith(RESP_OK_PREFIX)
@@ -77,6 +79,10 @@ class CompassApi:
         if not ok:
             logger.warning(LOG_FMT_VRX_REJECTED.format(res=res))
         return ok
+
+    def get_diagnostics(self, pc_time: int) -> str:
+        """Sealed DIAG record (hex), readable only by KeySec admin (keyadmin sealed_record_decoder)."""
+        return self.rpc.execute_command(MSG_DIAG, int(pc_time).to_bytes(4, byteorder=BYTEORDER_LITTLE))
 
     def get_max_users(self) -> str:
         res = self.rpc.execute_command(MSG_COMPASS_USERS, RESP_REQ_BYTES)

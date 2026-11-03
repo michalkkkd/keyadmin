@@ -11,6 +11,13 @@ from keyadmin.secure_debug.secure_debug_service import SecureDebugService
 from keyadmin.secure_debug.secure_debug_store import SecureDebugStore
 from keyadmin.scripts.provision_dongle import DongleProvisioner
 from keyadmin.admin_factory import init_admin_device
+from datetime import datetime
+from keycomm.diag.diagnostics_runner import DiagnosticsRunner
+from keycomm.diag.diag_report import DiagReport
+from keycomm.diag.diag_run_outcome import DiagRunOutcome
+from keyadmin.secure_debug.tamper_log_decoder import load_key as load_tamper_log_key
+from keyadmin.secure_debug.diag_support_report import format_support_report
+from keyadmin.scripts.decode_diag_payload import read_pasted_payload, decipher
 from keyadmin.core.constants import (
     ADMIN_MENU_TITLE,
     ADMIN_PROMPT_PAUSE,
@@ -41,6 +48,8 @@ from keyadmin.core.constants import (
     ADMIN_SEC_FACTORY,
     ADMIN_ACT_PROVISION,
     ADMIN_HDR_PROVISION,
+    ADMIN_HDR_DONGLE_DIAG,
+    ADMIN_HDR_DECIPHER_DIAG,
     ACTION_PROVISION_DONGLE,
     PROV_DEFAULT_LICENSE_DAYS,
     PROV_DEFAULT_MAX_USERS,
@@ -60,12 +69,16 @@ from keyadmin.core.constants import (
     ADMIN_ACT_RTC,
     ADMIN_ACT_LICENSE,
     ADMIN_ACT_LOGS,
+    ADMIN_ACT_DONGLE_DIAG,
+    ADMIN_ACT_DECIPHER_DIAG,
     ADMIN_ACT_BENCHMARK,
     ADMIN_ACT_HB_START,
     ADMIN_ACT_HB_DISABLE,
     ADMIN_ACT_EXIT,
     ACTION_SYS_HEALTH,
     ACTION_BATTERY_STATUS,
+    ACTION_DONGLE_DIAG,
+    ACTION_DECIPHER_DIAG,
     ACTION_MEMORY_NVM,
     ACTION_RTC_DIAG,
     ACTION_LICENSE_USERS,
@@ -145,6 +158,8 @@ class KeySecMenu:
     def run(self):
         options = [
             {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ADMIN_SEC_DIAGNOSTICS},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_DONGLE_DIAG, DICT_KEY_ID: ACTION_DONGLE_DIAG},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_DECIPHER_DIAG, DICT_KEY_ID: ACTION_DECIPHER_DIAG},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_SYS_HEALTH, DICT_KEY_ID: ACTION_SYS_HEALTH},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_BATTERY, DICT_KEY_ID: ACTION_BATTERY_STATUS},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_MEMORY, DICT_KEY_ID: ACTION_MEMORY_NVM},
@@ -215,6 +230,16 @@ class KeySecMenu:
             print(health_str)
             if getattr(health_str, 'is_tampered', False):
                 print(ADMIN_ALERT_TAMPER)
+            self._pause()
+
+        elif action_id == ACTION_DONGLE_DIAG:
+            print(ADMIN_HDR_DONGLE_DIAG)
+            self._show_dongle_diagnostics()
+            self._pause()
+
+        elif action_id == ACTION_DECIPHER_DIAG:
+            print(ADMIN_HDR_DECIPHER_DIAG)
+            self._decipher_diag_payload()
             self._pause()
 
         elif action_id == ACTION_BATTERY_STATUS:
@@ -378,6 +403,19 @@ class KeySecMenu:
     def _run_secure_debug_action(self, action) -> None:
         try:
             action()
+        except Exception as e:
+            print(f"[-] {e}")
+
+    def _show_dongle_diagnostics(self) -> None:
+        """The dongle part of Compass.exe --diag on this session, shown as support would see it (no envelope)."""
+        outcome: DiagRunOutcome = DiagnosticsRunner.read_dongle(self.rpc, progress=lambda: None)
+        payload = DiagReport(datetime.now()).payload(outcome)
+        print(format_support_report(payload, load_tamper_log_key()))
+
+    def _decipher_diag_payload(self) -> None:
+        """Payload a customer sent (Compass.exe --diag), pasted into the console; needs no dongle."""
+        try:
+            print(decipher(read_pasted_payload()))
         except Exception as e:
             print(f"[-] {e}")
 

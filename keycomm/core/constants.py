@@ -14,6 +14,10 @@ MSG_TEST_ADD            = 0x06
 MSG_COMPASS_USERS       = 0x09
 MSG_HANDSHAKE_INIT      = 0x0D
 MSG_SYS_HEALTH          = 0x10
+MSG_DIAG                = 0x13
+MSG_DIAG_TLOG           = 0x14
+MSG_GET_LOG_SIZE        = 0x11
+MSG_GET_LOG_CHUNK       = 0x12
 MSG_VRX                 = 0x16
 
 MSG_SIM_PK_GI_INIT      = 0x30
@@ -45,7 +49,7 @@ MSG_ERR                 = 0x81
 # Command IDs that require end-to-end encryption via SecureChannel
 SECURE_CMD_IDS = (
     MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS,
-    0x11, 0x12, 0x13, 0x14, 0x15, MSG_VRX,
+    MSG_GET_LOG_SIZE, MSG_GET_LOG_CHUNK, MSG_DIAG, MSG_DIAG_TLOG, 0x15, MSG_VRX,
     0x20, 0x21, 0x22,
     MSG_SIM_PK_GI_INIT, MSG_SIM_PK_GI_CHUNK, MSG_SIM_PK_GI_PROCESS, MSG_SIM_PK_GI_READ,
     MSG_SAFE_SPACE_INIT, MSG_SAFE_SPACE_CHUNK, MSG_SAFE_SPACE_PROCESS, MSG_SAFE_SPACE_READ,
@@ -237,6 +241,8 @@ LOG_FMT_SESSION_ERROR       = "[Protocol] Session error detected ({data_str}), t
 LOG_FMT_DECRYPT_FAIL        = "[Protocol] Response decryption failed ({e}), triggering auto re-handshake..."
 ERR_FMT_DECRYPT_FAILED      = "Decryption Failed - {err}"
 ERR_FMT_TIMEOUT_RETRIES     = "Timeout after {retries} retries"
+ERR_SECURE_SESSION_UNAVAILABLE = "Secure session unavailable (handshake failed), command not sent"
+ERR_FMT_UNEXPECTED_RESP_TYPE   = "Unexpected response type 0x{type:02X} for a secure command"
 TIMESTAMP_FMT               = "%Y-%m-%d %H:%M:%S"
 RE_SYNC_ELAPSED             = r'Elapsed since sync:\s*(\d+)'
 SYNC_ELAPSED_FMT            = 'Elapsed since sync: {h} h {m} m'
@@ -267,3 +273,83 @@ LOG_HANDSHAKE_FATAL         = "[-] FATAL: Failed to establish secure ECDHE chann
 LOG_FMT_CONNECT_ERROR       = "[-] FATAL: Could not connect to Dongle on {port}: {e}"
 LOG_FMT_TRANSPORT_CLOSE_ERROR = "[-] Warning: Failed to close transport cleanly on error: {err}"
 
+# ==============================================================================
+# Dongle diagnostics (keycomm.diag): the whole report is encrypted to the Diag Report Key,
+# the customer sees only the encrypted payload. Decoded by KeySec admin (keyadmin).
+# ==============================================================================
+DIAG_TOOL_VERSION           = 2
+KEYCOMM_VERSION             = "1.1.0"
+DIAG_ERR_UNKNOWN_CMD        = "Unknown command"
+DIAG_ERR_PORT_BUSY_MARK     = "PermissionError"
+DIAG_SEALED_HEX_LEN         = 2 * (16 + 256)   # IV + sealed record v4 (KeyFirmware src/core/diag_record.h)
+DIAG_TLOG_SEALED_LEN        = 16 + 1024        # IV + tamper log page, DIAG_TLOG_OUT_LEN
+DIAG_LOG_SIZE_REQ           = b"X"
+
+DIAG_RESULT_PASS            = "PASS"
+DIAG_RESULT_WARN            = "WARN"
+DIAG_RESULT_FAIL            = "FAIL"
+DIAG_RESULT_SKIP            = "SKIP"
+DIAG_RESULT_SUB_FMT         = "{result}_{sub}"
+DIAG_LINE_FMT               = "{code} -> {result}"
+
+# Checks made by the host; the dongle values are judged by keyadmin after decryption
+DIAG_CODE_PORT_FOUND        = "CO_1"
+DIAG_CODE_PORT_OPEN         = "CO_2"
+DIAG_CODE_PING              = "PI_1"
+DIAG_CODE_ROOT_CA           = "KY_1"
+DIAG_CODE_HANDSHAKE         = "HS_1"
+DIAG_CODE_FIRMWARE          = "FW_1"
+DIAG_CODE_LINK              = "LK_1"
+DIAG_HOST_CODES             = (DIAG_CODE_PORT_FOUND, DIAG_CODE_PORT_OPEN, DIAG_CODE_PING, DIAG_CODE_ROOT_CA,
+                               DIAG_CODE_HANDSHAKE, DIAG_CODE_FIRMWARE, DIAG_CODE_LINK)
+DIAG_LINK_PINGS             = 10
+
+# Encrypted envelope: version | ephemeral P-256 point | GCM nonce | AES-256-GCM(zlib(JSON))
+DIAG_ENVELOPE_VERSION       = 1
+DIAG_ENVELOPE_POINT_LEN     = 65
+DIAG_ENVELOPE_NONCE_LEN     = 12
+DIAG_ENVELOPE_KEY_LEN       = 32
+DIAG_ENVELOPE_HKDF_INFO     = b"KeySec diag report v1"
+DIAG_ARMOR_BEGIN            = "-----BEGIN KEY DIAG-----"
+DIAG_ARMOR_END              = "-----END KEY DIAG-----"
+DIAG_ARMOR_LINE_LEN         = 64
+
+DIAG_KEY_TOOL               = "tool"
+DIAG_KEY_TIME               = "time"
+DIAG_KEY_UTC                = "utc"
+DIAG_KEY_OS                 = "os"
+DIAG_KEY_PORTS              = "ports"
+DIAG_KEY_CHECKS             = "checks"
+DIAG_KEY_ERRORS             = "errors"
+DIAG_KEY_LINK               = "link"
+DIAG_KEY_SEALED             = "sealed"
+DIAG_KEY_TLOG               = "tlog"
+DIAG_KEY_RAMLOG             = "ramlog"
+DIAG_KEY_PC                 = "pc"
+DIAG_KEY_PROCESSES          = "processes"
+DIAG_KEY_USB                = "usb"
+DIAG_KEY_APP                = "app"
+DIAG_PORT_FMT               = "{device} {vid}:{pid} {description} | {manufacturer} | SER={serial} LOC={location} | {hwid}"
+# Process names worth reporting (may hold the COM port): image names matched case-insensitively
+DIAG_PROCESS_PATTERN        = r"compass|python|keyadmin|putty|tera|realterm|arduino|simplicity|commander|serial|coolterm|hterm|termite|pyocd|jlink"
+DIAG_TASKLIST_CMD           = ["tasklist", "/FO", "CSV", "/NH"]
+DIAG_USB_DRIVER_PS          = ("Get-CimInstance Win32_PnPSignedDriver -Filter \"DeviceID like 'USB\\\\VID_{vid:04X}&PID_{pid:04X}%'\" | "
+                               "Select-Object DeviceID,DeviceName,DriverProviderName,DriverVersion,DriverDate,InfName | ConvertTo-Json -Compress")
+DIAG_SUBPROCESS_TIMEOUT_S   = 15
+DIAG_EXE_HASH_CHUNK         = 1 << 20
+DIAG_FP_HEX_LEN             = 16
+DIAG_LINK_FMT_KEYS          = ("pings", "lost", "retransmissions")
+
+DIAG_HEADER_FMT             = "KEY DIAG {version} | {timestamp}"
+DIAG_PROGRESS_START         = "Collecting diagnostics "
+DIAG_PROGRESS_STEP          = "."
+DIAG_PROGRESS_DONE          = " done"
+DIAG_SEND_HINT              = "Send the text below (or the report file) to support:"
+DIAG_REPORT_SAVED_FMT       = "REPORT: {path}"
+DIAG_REPORT_FILE_FMT        = "key_diag_{stamp}.txt"
+DIAG_TIMESTAMP_FMT          = "%Y-%m-%d %H:%M:%S"
+DIAG_FILE_STAMP_FMT         = "%Y%m%d_%H%M%S"
+DIAG_ERR_NO_HOST_KEY        = "Host key file not found: {path}"
+DIAG_HELP_HOST_KEY          = "PEM file with the Host Key (e.g. KeySec/keyadmin/keys/host_key.pem)"
+DIAG_HELP_KEYS_DIR          = "Folder with root_ca_pub.pem (default: search next to the program)"
+DIAG_HELP_OUT_DIR           = "Folder for the report file (default: current folder)"

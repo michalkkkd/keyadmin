@@ -3,6 +3,7 @@ import time
 import threading
 
 from keycomm.core.TinyFrame import TinyFrame
+from keycomm.core.tf_constants import TF
 from keycomm.core.constants import (
     MSG_LOG, MSG_PING, MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS,
     MSG_SYS_HEALTH, MSG_VRX,
@@ -59,7 +60,7 @@ class SerialTransport:
                 if msg.data:
                     log_str = msg.data.decode(CHAR_ENCODING_UTF8, errors=ERRORS_IGNORE)
                     print(LOG_FMT_ASYNC_MCU.format(log_str=log_str))
-                return True
+                return TF.STAY  # True would remove the listener after the first log
 
             self.tf.add_type_listener(MSG_LOG, _log_listener)
 

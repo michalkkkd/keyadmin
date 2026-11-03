@@ -4,6 +4,7 @@ import threading
 from datetime import datetime
 
 from keycomm.core.transport import SerialTransport
+from keycomm.core.tf_constants import TF
 from keycomm.core.constants import (
     MSG_LOG, MSG_OK, MSG_ERR, SECURE_CMD_IDS,
     RESP_OK_PREFIX, RESP_ERR_PREFIX, RESP_UNKNOWN_PREFIX, RESP_FIRE_AND_FORGET,
@@ -11,6 +12,7 @@ from keycomm.core.constants import (
     MCU_ERR_SESSION_INACTIVE, MCU_ERR_DECRYPT_FAILED, MCU_ERR_DECRYPTION_FAILED,
     LOG_FMT_SENDING, LOG_FMT_MCU, LOG_FMT_CORRUPTED_CRC, LOG_FMT_SESSION_ERROR,
     LOG_FMT_DECRYPT_FAIL, ERR_FMT_DECRYPT_FAILED, ERR_FMT_TIMEOUT_RETRIES,
+    ERR_SECURE_SESSION_UNAVAILABLE, ERR_FMT_UNEXPECTED_RESP_TYPE,
     TIMESTAMP_FMT, RE_SYNC_ELAPSED, SYNC_ELAPSED_FMT
 )
 
@@ -33,7 +35,7 @@ class RpcProtocol:
     def _on_log(self, tf, msg):
         log_str = msg.data.decode(CHAR_ENCODING_UTF8, errors='ignore')
         print(LOG_FMT_MCU.format(text=self._format_timestamps(log_str)))
-        return True  # stay active
+        return TF.STAY  # True would remove the listener after the first log
 
     def _format_timestamps(self, text: str) -> str:
         def replace_ts(m):
@@ -56,8 +58,13 @@ class RpcProtocol:
 
     def execute_command(self, cmd_id: int, payload: bytes = EMPTY_BYTES, timeout_sec: float = 2.0, max_retries: int = 5, fire_and_forget: bool = False) -> str:
         with self._lock:
-            # Check if command requires encryption
-            is_secure = hasattr(self, 'secure_channel') and self.secure_channel and self.secure_channel.is_active
+            # Once a secure channel is attached, secure commands are encrypted or not sent at all.
+            # Plaintext exists only for explicit unencrypted admin mode (no secure_channel attached).
+            channel = getattr(self, 'secure_channel', None)
+            requires_secure = channel is not None and cmd_id in self.SECURE_CMD_IDS
+            if requires_secure and not channel.is_active and not channel.init_handshake():
+                return f"{RESP_ERR_PREFIX}{ERR_SECURE_SESSION_UNAVAILABLE}"
+            is_secure = requires_secure
 
             raw_payload = payload
             if is_secure and cmd_id in self.SECURE_CMD_IDS:
@@ -79,6 +86,9 @@ class RpcProtocol:
                     return RESP_FIRE_AND_FORGET
 
                 resp = self.transport.query(cmd_id, tx_payload, timeout=timeout_sec)
+                if resp is not None and requires_secure and resp.type not in (MSG_OK, MSG_ERR):
+                    # Only OK/ERR are decrypted, anything else would reach the caller as plaintext
+                    return f"{RESP_ERR_PREFIX}{ERR_FMT_UNEXPECTED_RESP_TYPE.format(type=resp.type)}"
                 if resp is not None:
                     resp_data = resp.data
 
@@ -89,7 +99,6 @@ class RpcProtocol:
                         if resp.type == MSG_ERR and (len(resp_data) < 20 or resp_data.startswith(b"ERR:")):
                             data_str = resp_data.decode(CHAR_ENCODING_UTF8, errors='ignore')
                             if self._is_session_error(data_str) and attempt < max_retries - 1 and self._restart_session(data_str):
-                                is_secure = self.secure_channel.is_active
                                 continue
                             return f"{RESP_ERR_PREFIX}{data_str}"
                         try:
@@ -100,7 +109,6 @@ class RpcProtocol:
                                 self.retransmissions_count += 1
                                 print(LOG_FMT_DECRYPT_FAIL.format(e=e))
                                 if self.secure_channel.init_handshake():
-                                    is_secure = self.secure_channel.is_active
                                     time.sleep(0.05)
                                     continue
                             return f"{RESP_ERR_PREFIX}{ERR_FMT_DECRYPT_FAILED.format(err=str(e))}"
@@ -110,7 +118,6 @@ class RpcProtocol:
                     if (is_secure and cmd_id in self.SECURE_CMD_IDS and resp.type == MSG_ERR
                             and self._is_session_error(data_str) and attempt < max_retries - 1
                             and self._restart_session(data_str)):
-                        is_secure = self.secure_channel.is_active
                         continue
                     if resp.type == MSG_OK:
                         return f"{RESP_OK_PREFIX}{data_str}"

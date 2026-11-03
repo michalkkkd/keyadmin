@@ -144,8 +144,8 @@ W oprogramowaniu `KeyFirmware` zaimplementowano scentralizowaną klasę i moduł
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                      FIZYCZNA PAMIĘĆ FLASH EFR32MG24 (1536 KB)                   │
 ├──────────────────────────────────────┬──────────────────────┬────────────────────┤
-│   KOD ŹRÓDŁOWY / FIRMWARE (Aplikacja)│      OBSZAR NVM3     │ LOG TAMPERÓW (AES) │
-│    (0x08000000 do 0x08148000)        │ (0x08148000-0x17E000)│ UserData 0x0FE00000│
+│   KOD ŹRÓDŁOWY / FIRMWARE (Aplikacja)│  NVM3 świata Secure  │ LOG TAMPERÓW (AES) │
+│    (0x08000000 do 0x08148000)        │ (0x08026000-0x30000) │ UserData 0x0FE00000│
 │                                      │                      │                    │
 │ - Wektory przerwań / Reset vector    │ - Licencje, certyfik.│ - 64 wpisy x 16 B  │
 │ - Algorytmy i funkcja główna         │ - Klucz tożsamości   │ - Typ, licznik     │
@@ -273,13 +273,14 @@ W oprogramowaniu `KeyFirmware` zaimplementowano pełną separację fizycznych do
 
 | Domena Pamięci | Zakres Adresów | Rozmiar | Zawartość i Rola w Systemie |
 |---|---|---|---|
-| **Secure Flash** | `0x08000000 - 0x0802FFFF` | 192 KB | Kod startowy Secure, algorytmy Compass IP, kryptografia, weryfikator licencji RTC, limit użytkowników, TamperManager. |
+| **Secure Flash** | `0x08000000 - 0x08025FFF` | 152 KB | Kod startowy Secure, algorytmy Compass IP, kryptografia, weryfikator licencji RTC, limit użytkowników, TamperManager. |
+| **Secure NVM3** | `0x08026000 - 0x0802FFFF` | 40 KB | Licencja (start, dni), checkpoint zegara, limit użytkowników, certyfikat, klucz tożsamości (owinięty PUF). Leży w regionie Secure SAU i ESAU, więc kod NS i bus mastery NS (np. LDMA) nie mogą go odczytać. Linker pilnuje, żeby kod Secure nie wszedł na ten obszar. |
 | **NSC Flash (Gateway)** | `0x08030000 - 0x08037FFF` | 32 KB | Bramki tranzytowe z instrukcją `SG` (*Secure Gateway*) eksportujące bezpieczne API (`cmse_nonsecure_entry`). |
 | **Non-Secure Flash** | `0x08038000 - 0x08147FFF` | 1088 KB | Parser JSON (`cJSON.c`), obsługa stosu TinyFrame, sterowniki USB CDC/EUSART, routery komend (`prod_router.c`). |
-| **Secure NVM3** | `0x08148000 - 0x08167FFF` | 128 KB | Odizolowany magazyn tokenów licencyjnych, tożsamości urządzenia i znaczników antysabotażowych. |
-| **Non-Secure NVM3** | `0x08168000 - 0x0817DFFF` | 104 KB | Dane i konfiguracja ogólna użytkownika. |
-| **Secure RAM** | `0x20000000 - 0x2000FFFF` | 64 KB | Stos Secure `MSP_S`, dynamiczna sterta krypto, wrażliwe bufory obliczeniowe algorytmów farmakokinetycznych. |
-| **Non-Secure RAM** | `0x20010000 - 0x2003FFFF` | 192 KB | Stos Non-Secure `MSP_NS`, drzewo DOM cJSON, bufory ramkowania transmisji USB TinyFrame. |
+| **Non-Secure NVM3** | `0x0813E000 - 0x08147FFF` | 40 KB | Instancja NVM3 obrazu NS (koniec regionu NS image); nie przechowuje sekretów. |
+| **Dawne Secure NVM3** | `0x08174000 - 0x0817DFFF` | 40 KB | Tu leżało NVM3 Secure przed przeniesieniem (region NS). Firmware Secure kasuje przy starcie każdą niepustą stronę tego obszaru. |
+| **Secure RAM** | `0x20000000 - 0x20037FFF` | 224 KB | Stos Secure `MSP_S`, dynamiczna sterta krypto, wrażliwe bufory obliczeniowe algorytmów farmakokinetycznych. |
+| **Non-Secure RAM** | `0x20038000 - 0x2003FFFF` | 32 KB | Stos Non-Secure `MSP_NS`, drzewo DOM cJSON, bufory ramkowania transmisji USB TinyFrame. |
 
 #### Bramki Wejściowe NSC i Ochrona przed Atakiem Confused Deputy
 1. **Instrukcja `SG` (Secure Gateway):** Świat Non-Secure nie ma fizycznej możliwości skoczenia pod dowolny adres strefy Secure (sprzętowy wyjątek `SecureFault`). Jedyne legalne punkty wejścia to bramki NSC zadeklarowane w [`src/secure/nsc_interface.c`](../../../KeyFirmware/src/secure/nsc_interface.c) z atrybutem `__attribute__((cmse_nonsecure_entry))`.
@@ -537,18 +538,19 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 | `MSG_ADMIN_LIC` | `0x04` | Ustawienie licencji | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; zapisuje czas trwania licencji (w dniach). |
 | `MSG_ADMIN_WIPE` | `0x05` | Reset do ustawień fabrycznych | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; kasuje całą zawartość NVM3 (`nvm3_eraseAll`). |
 | `MSG_TEST_ADD` | `0x06` | Algorytm testowy `alg1` | **Nie** (Odrzucona) | **Tak** | Obliczenia testowe wraz z rejestracją aktywnego użytkownika (używane m.in. w weryfikacji provisioningu). |
-| `MSG_DEBUG_TIME` | `0x07` | Diagnostyka zegara RTC | **Tak** | **Tak** *(Pre-prod)* | Odczyt rejestrów RTC, upływu minut oraz parametrów synchronizacji. |
+| `MSG_DEBUG_TIME` | `0x07` | Diagnostyka zegara RTC | **Tak** | **No** (factory build only, see [diagnostics.md](diagnostics.md)) | Odczyt rejestrów RTC, upływu minut oraz parametrów synchronizacji. |
 | `MSG_ADMIN_USERS` | `0x08` | Ustawienie limitu użytkowników | **Tak** | **Nie** (Odrzucona) | Tylko w firmware fabrycznym; zapisuje maksymalną liczbę stanowisk w NVM3. |
 | `MSG_COMPASS_USERS` | `0x09` | Odczyt limitu użytkowników | **Tak** | **Tak** | Zwraca limit stanowisk oraz liczbę aktywnych sesji. |
-| `MSG_MEM_INFO` | `0x0A` | Diagnostyka pamięci | **Tak** | **Tak** *(Pre-prod)* | Raport zajętości pamięci Flash, SRAM oraz sterty. |
+| `MSG_MEM_INFO` | `0x0A` | Diagnostyka pamięci | **Tak** | **No** (factory build only) | Raport zajętości pamięci Flash, SRAM oraz sterty. |
 | `MSG_PROVISION_IDENTITY` | `0x0B` | Generowanie klucza tożsamości | **Tak** | **Nie** (Odrzucona) | Generowanie tożsamości SECP256R1 przez sprzętowy koprocesor krypto. |
 | `MSG_SAVE_CERTIFICATE` | `0x0C` | Zapis certyfikatu | **Tak** | **Nie** (Odrzucona) | Zapis podpisanego przez Root CA certyfikatu w pamięci NVM3. |
 | `MSG_HANDSHAKE_INIT` | `0x0D` | Handshake ECDHE | **Tak** | **Tak** | Wymiana kluczy efemerycznych NIST P-256 i ustalenie klucza sesji. |
-| `MSG_BATTERY_INFO` | `0x0E` | Stan baterii Li-Po | **Tak** | **Tak** | Pomiar napięcia i szacowanie naładowania ogniwa przez IADC. |
-| `MSG_NVM_DIAG` | `0x0F` | Diagnostyka NVM3 | **Tak** | **Tak** *(Pre-prod)* | Odczyt licznika kasowań i wolnego miejsca w pamięci Flash NVM3. |
-| `MSG_SYS_HEALTH` | `0x10` | Status zdrowia / Anti-tamper | **Tak** | **Tak** | Odczyt sumy wykrytych zdarzeń tampera (TamperEvents), temperatury krzemu oraz liczby wpisów w trwałym logu tamperów (TamperLog: N). |
+| `MSG_BATTERY_INFO` | `0x0E` | Stan baterii Li-Po | **Tak** | **No** (factory build only) | Pomiar napięcia i szacowanie naładowania ogniwa przez IADC. |
+| `MSG_NVM_DIAG` | `0x0F` | Diagnostyka NVM3 | **Tak** | **No** (factory build only) | Odczyt licznika kasowań i wolnego miejsca w pamięci Flash NVM3. |
+| `MSG_SYS_HEALTH` | `0x10` | Status zdrowia / Anti-tamper | **Tak** | **No** (factory build only) | Odczyt sumy wykrytych zdarzeń tampera (TamperEvents), temperatury krzemu oraz liczby wpisów w trwałym logu tamperów (TamperLog: N). |
 | `MSG_GET_LOG_SIZE` | `0x11` | Rozmiar logów RAM | **Tak** | **Tak** | Zwraca długość bufora logów w pamięci RAM. |
 | `MSG_GET_LOG_CHUNK` | `0x12` | Odczyt fragmentu logu | **Tak** | **Tak** | Pobieranie fragmentu z 10 KB bufora cyklicznego logów. |
+| `MSG_DIAG` | `0x13` | Diagnostic snapshot | **Yes** | **Yes** | Secure route (session required, no license check): numbers only plus a record sealed with the Tamper Log Key. See [diagnostics.md](diagnostics.md). |
 | `MSG_COMPASS_SIM_PK` | `0x15` | Symulacja PK | **Nie** (Odrzucona) | **Tak** | Obliczenia PK z kontrolą licencji i użytkowników. |
 | `MSG_VRX` | `0x16` | Weryfikacja i unieważnienie tokenu VRX | **Nie** (Odrzucona) | **Tak** | Sprzętowa rotacja tokenów VRX; atomowe zwieńczenie transakcji i unieważnienie tokenu. |
 | `MSG_SIM_PK_GI_*` | `0x30`-`0x33` | Symulacja Motility | **Nie** (Odrzucona) | **Tak** | Szyfrowany potok symulacji motoryki przewodu pokarmowego (JSON/chunks). |
@@ -558,7 +560,7 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 
 *(Uwaga: Wpis "Nie (Odrzucona)" oznacza, że dany kod rozkazu nie jest zarejestrowany w tablicy routera danej kompilacji i automatycznie zwraca błąd `ERR: Unknown command (ID)`).*
 
-**Szyfrowanie komend w wersji produkcyjnej:** `MSG_CHECK_LIC`, `MSG_VRX`, `MSG_COMPASS_USERS`, `MSG_GET_LOG_*`, `MSG_TEST_ADD`, `MSG_COMPASS_SIM_PK`, `MSG_SIM_PK_GI_*`, `MSG_SAFE_SPACE_*` i `MSG_SSP_*` wymagają aktywnej sesji: zapytanie, odpowiedź i błędy są szyfrowane AES-256-GCM z AAD (typ komendy, OK/ERR). Jawne są: `MSG_PING`, diagnostyka (`MSG_SYS_HEALTH`, `MSG_BATTERY_INFO`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`, `MSG_DEBUG_TIME`), `MSG_HANDSHAKE_INIT` i `MSG_DEBUG_LOCK_*`, a w firmware fabrycznym także komendy admina.
+**Szyfrowanie komend w wersji produkcyjnej:** `MSG_CHECK_LIC`, `MSG_VRX`, `MSG_COMPASS_USERS`, `MSG_GET_LOG_*`, `MSG_TEST_ADD`, `MSG_COMPASS_SIM_PK`, `MSG_SIM_PK_GI_*`, `MSG_SAFE_SPACE_*` i `MSG_SSP_*` wymagają aktywnej sesji: zapytanie, odpowiedź i błędy są szyfrowane AES-256-GCM z AAD (typ komendy, OK/ERR). Jawne są: `MSG_PING`, `MSG_HANDSHAKE_INIT` i `MSG_DEBUG_LOCK_*`, a w firmware fabrycznym także komendy admina oraz tekstowa diagnostyka (`MSG_SYS_HEALTH`, `MSG_BATTERY_INFO`, `MSG_MEM_INFO`, `MSG_NVM_DIAG`, `MSG_DEBUG_TIME`). Production firmware answers diagnostics only through the encrypted `MSG_DIAG` ([diagnostics.md](diagnostics.md)).
 
 ---
 
