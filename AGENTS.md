@@ -71,6 +71,7 @@ The detailed design and documentation of the project's security mechanisms are m
 
 * [Time-Based License Mechanism](docs/security/time_license_mechanism.md)
 * [Active Users Limit Mechanism](docs/security/users_limit_mechanism.md)
+* [Compass Authentication, One Device per Account and the Dongle User Identity](docs/security/authentication.md)
 * [Communication Encryption Mechanism](docs/security/communication_encryption.md)
 * [Main Application Protection (Nuitka & Themida)](docs/security/app_protection_nuitka_themida.md)
 * [Hardware Anti-Tamper Protection](docs/security/antitamper.md)
