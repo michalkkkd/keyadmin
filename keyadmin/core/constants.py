@@ -370,6 +370,14 @@ PROV_MSG_IDENTITY_FMT         = "[+] Dongle identity public key: {pubkey}"
 PROV_MSG_CERT_SAVED           = "[+] Identity certificate signed by Root CA and saved to NVM3."
 PROV_MSG_RTC_FMT              = "[+] RTC base timestamp: {response}"
 PROV_MSG_LICENSE_FMT          = "[+] License days: {response}"
+# Same days as already stored: the dongle keeps the license start (firmware ADMIN_RESP_LIC_KEPT_FMT) unless restarted
+PROV_LICENSE_KEPT_MARK        = "License unchanged"
+PROV_LICENSE_RESTART_TOKEN    = "restart"   # firmware ADMIN_LIC_RESTART_TOKEN
+PROV_LICENSE_RESTART_ANSWER   = "TAK, NADPISZ"
+PROV_PROMPT_LICENSE_RESTART_FMT = ("[?] The dongle already has a {days}-day license, started {start} UTC. Its start date is kept.\n"
+                                   "    Type '{answer}' to restart it now (the license then runs {days} days from today), "
+                                   "anything else keeps it: ")
+PROV_MSG_LICENSE_START_KEPT_FMT = "[=] License start kept: {start} UTC"
 PROV_MSG_USERS_FMT            = "[+] Max users: {response}"
 PROV_MSG_SECURE_SESSION       = "[+] Secure ECDHE session established."
 PROV_MSG_VERIFY_LICENSE_FMT   = "[+] License check: {result}"
@@ -598,8 +606,31 @@ DIAG_RESULT_MEANINGS = {
 DIAG_EXPLAIN_FMT            = "  {line:<16} {meaning}{detail}"
 DIAG_EXPLAIN_DETAIL_FMT     = "  [{detail}]"
 
-# Dongle record v5 (KeyFirmware src/core/diag_record.h, 256 bytes; field list in sealed_record_decoder.py)
-DIAG_SEALED_RECORD_VERSION  = 5
+# Dongle record v7 (KeyFirmware src/core/diag_record.h, 256 bytes; field list in sealed_record_decoder.py)
+DIAG_SEALED_RECORD_VERSION  = 7
+DIAG_SEALED_RECORD_MIN_VERSION = 6   # v6 = v7 without the energy mode times (those bytes were reserved, zero)
+
+# RTC report rebuilt from the DIAG record, line for line as the factory firmware prints it
+# (KeyFirmware security_rtc_get_time_report(), GRTC_* in core_messages.h)
+RTC_REPORT_HEADER           = "\n   [CLOCK AND LICENSE REPORT]  (all times UTC)"
+RTC_REPORT_LINES = (
+    "   - Dongle time now      : {now} [{now_str}]",
+    "   - PC time (Windows)    : {pc} [{pc_str}]",
+    "   - Dongle minus PC      : {diff:+d} s -> {verdict}",
+    "   - License start        : {start} [{start_str}]  (set at provisioning, never changes)",
+    "   - License end          : {end} [{end_str}]  (start + {days} days)",
+    "   - License status       : {status}, {used} days used, {left} days left",
+    "   - Clock start at boot  : {boot} [{boot_str}]  (last NVM3 save + {penalty} s)",
+    "   - Running since boot   : {uptime} s ({uptime_min} min), counter {tick_hz} Hz",
+    "   - Last saved to NVM3   : {saved} [{saved_str}]  (saved every {checkpoint} s)",
+)
+RTC_MATCH_WINDOW_S          = 60
+RTC_VERDICT_MATCH           = "MATCH (within 60 s)"
+RTC_VERDICT_AHEAD           = "AHEAD (each reset adds up to 150 s)"
+RTC_VERDICT_BEHIND          = "BEHIND (dongle clock lost time)"
+RTC_LICENSE_STATUS          = ("VALID", "EXPIRED", "NO LICENSE", "CLOCK NOT TRUSTED (NO_RTC)")  # license_status_code_t
+RTC_FROM_DIAG_NOTE          = "   (production firmware: rebuilt from the encrypted DIAG stream)"
+MCU_ERR_UNKNOWN_COMMAND     = "Unknown command"
 DIAG_SEALED_MAGIC           = 0xD1A6
 DIAG_SEALED_FLAG_PROV       = 0x01
 DIAG_SEALED_FLAG_LIVE_WIPE  = 0x02

@@ -85,7 +85,8 @@ from keyadmin.core.constants import (
     PROV_MSG_IDENTITY_FMT,
     PROV_MSG_CERT_SAVED,
     PROV_MSG_RTC_FMT,
-    PROV_MSG_LICENSE_FMT,
+    PROV_MSG_LICENSE_FMT, PROV_LICENSE_KEPT_MARK, PROV_LICENSE_RESTART_ANSWER, PROV_PROMPT_LICENSE_RESTART_FMT,
+    PROV_MSG_LICENSE_START_KEPT_FMT,
     PROV_MSG_USERS_FMT,
     PROV_MSG_SECURE_SESSION,
     PROV_MSG_VERIFY_LICENSE_FMT,
@@ -448,12 +449,39 @@ class DongleProvisioner:
 
             print(PROV_MSG_RTC_FMT.format(
                 response=self._expect_ok(PROV_ERR_STEP_RTC, admin.update_current_date(int(time.time())))))
-            print(PROV_MSG_LICENSE_FMT.format(
-                response=self._expect_ok(PROV_ERR_STEP_LICENSE, admin.set_license_days(self.license_days))))
+            # Same days as already stored keep the license start; only the explicit answer restarts it
+            response = self._expect_ok(PROV_ERR_STEP_LICENSE, admin.set_license_days(self.license_days))
+            if PROV_LICENSE_KEPT_MARK in response:
+                if self._confirm_license_restart(response):
+                    response = self._expect_ok(PROV_ERR_STEP_LICENSE,
+                                               admin.set_license_days(self.license_days, restart_start=True))
+                else:
+                    print(PROV_MSG_LICENSE_START_KEPT_FMT.format(start=self._license_start_text(response)))
+            print(PROV_MSG_LICENSE_FMT.format(response=response))
             print(PROV_MSG_USERS_FMT.format(
                 response=self._expect_ok(PROV_ERR_STEP_USERS, admin.set_max_users(self.max_users))))
         finally:
             transport.close()
+
+    @staticmethod
+    def _license_start_text(response: str) -> str:
+        """UTC date of the start the dongle reported in its "License unchanged" answer."""
+        import re
+        from datetime import datetime, timezone
+        match = re.search(r"start (\d+)", response)
+        if not match:
+            return "?"
+        return datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _confirm_license_restart(self, response: str) -> bool:
+        """Asks before a new start date; no answer (no console, end of input) keeps the stored one."""
+        prompt = PROV_PROMPT_LICENSE_RESTART_FMT.format(days=self.license_days, start=self._license_start_text(response),
+                                                        answer=PROV_LICENSE_RESTART_ANSWER)
+        try:
+            return input(prompt).strip() == PROV_LICENSE_RESTART_ANSWER
+        except EOFError:
+            print()
+            return False
 
     # ---- steps 5-6: verify sealed dongle, optional debug lock -------------
 

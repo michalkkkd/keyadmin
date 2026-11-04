@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Tuple
 
 from keyadmin.core.constants import (
-    DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_MAGIC, DIAG_SEALED_FLAG_PROV, DIAG_SEALED_FLAG_LIVE_WIPE,
+    DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_RECORD_MIN_VERSION, DIAG_SEALED_MAGIC, DIAG_SEALED_FLAG_PROV, DIAG_SEALED_FLAG_LIVE_WIPE,
     DIAG_SEALED_FLAG_CERT, DIAG_SEALED_NO_TREND, DIAG_SESSION_ACTIVE, DIAG_USAGE_NAMES,
     DIAG_ERR_SEALED_LEN_FMT, DIAG_ERR_SEALED_INVALID,
 )
@@ -31,7 +31,9 @@ RECORD_FIELDS = (
     ("boots", "I"), ("resets_por", "H"), ("resets_pin", "H"), ("resets_sysreq", "H"), ("resets_wdog", "H"),
     ("resets_brownout", "H"), ("resets_lockup", "H"), ("resets_se_tamper", "H"),
     ("handshakes_rejected", "H"), ("decrypt_failures", "H"), ("tf_cksum_errors", "H"),
-    ("errors", "64s"), ("_reserved", "24s"), ("crc32", "I"),
+    ("errors", "64s"),
+    ("lic_elapsed_days", "H"), ("rtc_reset_penalty_s", "H"), ("rtc_checkpoint_s", "H"), ("rtc_tick_hz", "I"),
+    ("em0_s", "I"), ("em1_s", "I"), ("em2_s", "I"), ("em2_entries", "H"), ("crc32", "I"),
 )
 RECORD_FORMAT = "<" + "".join(f for _, f in RECORD_FIELDS)
 RECORD_SIZE = struct.calcsize(RECORD_FORMAT)  # 256 = sixteen AES blocks
@@ -115,6 +117,14 @@ class SealedRecord:
     decrypt_failures: int
     tf_cksum_errors: int
     errors: List[CommandError]
+    lic_elapsed_days: int
+    rtc_reset_penalty_s: int
+    rtc_checkpoint_s: int
+    rtc_tick_hz: int
+    em0_s: int
+    em1_s: int
+    em2_s: int
+    em2_entries: int
 
     @property
     def clock_diff_s(self) -> int:
@@ -143,12 +153,13 @@ def decode_record(plain: bytes) -> SealedRecord:
         else:
             fields[name] = values[i]
             i += 1
-    if (fields["magic"] != DIAG_SEALED_MAGIC or fields["version"] != DIAG_SEALED_RECORD_VERSION
+    if (fields["magic"] != DIAG_SEALED_MAGIC
+            or not DIAG_SEALED_RECORD_MIN_VERSION <= fields["version"] <= DIAG_SEALED_RECORD_VERSION
             or zlib.crc32(plain[:-4]) != fields["crc32"]):
         raise ValueError(DIAG_ERR_SEALED_INVALID)
     fields["tamper_counts"] = tuple(fields["tamper_counts"])
     fields["errors"] = _parse_errors(fields["errors"])
-    for name in ("magic", "_reserved", "crc32"):
+    for name in ("magic", "crc32"):
         del fields[name]
     return SealedRecord(**fields)
 
@@ -162,6 +173,18 @@ def utc(ts: int) -> str:
 def reset_cause_names(raw: int) -> str:
     names = [name for bit, name in RESET_CAUSE_NAMES if raw & (1 << bit)]
     return ", ".join(names) if names else "none"
+
+
+def _energy_modes(rec: SealedRecord) -> str:
+    """Time per energy mode since boot: shows whether the dongle really sleeps (EM2) on battery."""
+    if rec.version < 7:
+        return f"not in record v{rec.version}"
+    total = rec.em0_s + rec.em1_s + rec.em2_s
+    if total == 0:
+        return "no data"
+    share = ", ".join(f"{name} {sec} s ({100.0 * sec / total:.1f} %)"
+                      for name, sec in (("EM0 run", rec.em0_s), ("EM1 idle", rec.em1_s), ("EM2 sleep", rec.em2_s)))
+    return f"{share}; {rec.em2_entries} EM2 entries"
 
 
 def _debug_lock(flags: int) -> str:
@@ -209,6 +232,7 @@ def format_sealed_record(rec: SealedRecord) -> str:
     lines += [f"      {type_name(i)}: {n}" for i, n in enumerate(rec.tamper_counts) if n]
     lines += [
         f"  Battery         : {battery}",
+        f"  Energy modes    : {_energy_modes(rec)}",
         f"  Temperature     : {rec.temp_x10 / 10.0:.1f} C (since boot {rec.temp_min_x10 / 10.0:.1f} .. "
         f"{rec.temp_max_x10 / 10.0:.1f} C)",
         "  Algorithm runs  : (since provisioning, saved every 60 s)",

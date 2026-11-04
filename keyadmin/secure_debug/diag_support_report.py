@@ -17,6 +17,7 @@ from keyadmin.secure_debug.diag_evaluator import DiagEvaluator
 from keyadmin.secure_debug.diag_host_evaluator import DiagHostEvaluator
 from keyadmin.secure_debug.diag_stream_decoder import DiagContent
 from keyadmin.secure_debug.sealed_record_decoder import format_sealed_record
+from keyadmin.secure_debug.rtc_report import format_rtc_report
 from keyadmin.secure_debug.tamper_log_decoder import format_report as format_tamper_log
 
 
@@ -65,6 +66,7 @@ def format_support_report(content: DiagContent) -> str:
     lines += _section("[CHECKS]", checks)
 
     lines += ["", format_sealed_record(rec)]
+    lines.append(format_rtc_report(rec))
     lines += ["", "[TAMPER LOG]  (persistent, User Data page)", format_tamper_log(content.tamper_log)]
     lines += _section("[DONGLE RAM LOG]  (oldest first)", [f"  {l}" for l in content.ramlog.splitlines() if l.strip()])
     if app:

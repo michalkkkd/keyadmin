@@ -35,6 +35,7 @@ from keyadmin.core.constants import (
     CHAR_ENCODING_UTF8,
     LINE_DELIMITER_LF,
     STRUCT_FMT_UINT32_LE,
+    PROV_LICENSE_RESTART_TOKEN,
 )
 
 
@@ -47,9 +48,11 @@ class AdminApi:
         payload = f"{unix_timestamp}".encode(CHAR_ENCODING_UTF8)
         return self.rpc.execute_command(MSG_ADMIN_DATE, payload)
 
-    def set_license_days(self, days: int) -> str:
-        payload = f"{days}".encode(CHAR_ENCODING_UTF8)
-        return self.rpc.execute_command(MSG_ADMIN_LIC, payload)
+    def set_license_days(self, days: int, restart_start: bool = False) -> str:
+        """Same days as stored keep the license start date (the dongle answers PROV_LICENSE_KEPT_MARK);
+        restart_start=True sets it to now."""
+        text = f"{days} {PROV_LICENSE_RESTART_TOKEN}" if restart_start else f"{days}"
+        return self.rpc.execute_command(MSG_ADMIN_LIC, text.encode(CHAR_ENCODING_UTF8))
 
     def wipe_device(self) -> str:
         return self.rpc.execute_command(MSG_ADMIN_WIPE)

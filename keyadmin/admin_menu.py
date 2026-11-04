@@ -18,6 +18,7 @@ from keycomm.diag.diag_tool import pc_facts, seal_on_dongle
 from keyadmin.secure_debug.tamper_log_decoder import load_key as load_tamper_log_key
 from keyadmin.secure_debug.diag_stream_decoder import open_stream
 from keyadmin.secure_debug.diag_support_report import format_support_report
+from keyadmin.secure_debug.rtc_report import format_rtc_report
 from keyadmin.scripts.decode_diag_payload import read_pasted_payload, decipher
 from keyadmin.core.constants import (
     ADMIN_MENU_TITLE,
@@ -91,7 +92,7 @@ from keyadmin.core.constants import (
     ADMIN_HDR_SYS_HEALTH,
     ADMIN_HDR_BATTERY,
     ADMIN_HDR_MEMORY,
-    ADMIN_HDR_RTC,
+    ADMIN_HDR_RTC, RTC_FROM_DIAG_NOTE, MCU_ERR_UNKNOWN_COMMAND,
     ADMIN_HDR_LICENSE,
     ADMIN_HDR_BENCHMARK,
     ADMIN_HDR_DEVICE_LOGS,
@@ -256,7 +257,7 @@ class KeySecMenu:
 
         elif action_id == ACTION_RTC_DIAG:
             print(ADMIN_HDR_RTC)
-            print(self.admin.debug_time())
+            self._show_rtc_report()
             self._pause()
 
         elif action_id == ACTION_LICENSE_USERS:
@@ -413,6 +414,19 @@ class KeySecMenu:
             facts = pc_facts(self.rpc, datetime.now(), root_ca="keyadmin", handshake="", app_info=None)
             sealed = seal_on_dongle(self.rpc, facts)
         print(format_support_report(open_stream(sealed, load_tamper_log_key())))
+
+    def _show_rtc_report(self) -> None:
+        """Factory firmware prints the report itself; production firmware has no plaintext diagnostics, so the same
+        report is rebuilt from its encrypted DIAG record."""
+        report = self.admin.debug_time()
+        if MCU_ERR_UNKNOWN_COMMAND not in report:
+            print(report)
+            return
+        with contextlib.redirect_stdout(io.StringIO()):
+            facts = pc_facts(self.rpc, datetime.now(), root_ca="keyadmin", handshake="", app_info=None)
+            sealed = seal_on_dongle(self.rpc, facts)
+        print(format_rtc_report(open_stream(sealed, load_tamper_log_key()).record))
+        print(RTC_FROM_DIAG_NOTE)
 
     def _decipher_diag_payload(self) -> None:
         """Payload a customer sent (Compass.exe --diag), pasted into the console; needs no dongle."""

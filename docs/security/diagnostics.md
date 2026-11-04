@@ -46,7 +46,7 @@ Decoder: `keyadmin/secure_debug/diag_stream_decoder.py`.
 | :--- | :--- |
 | PC facts | keycomm and tool version, local and UTC time, Windows and Python version, time zone, program path (user profile masked as `%USERPROFILE%`), exe size, time and SHA-256 prefix (identifies the Compass build), COM ports (VID/PID, USB serial, USB location showing hubs, HWID), programs that may hold the port, Windows drivers of the dongle's USB interfaces, `root_ca_pub.pem` found, handshake result text, retransmissions / timeouts of the run |
 | PC facts / `app` | Compass: compiled or not, USE_DEVICE, keys folder found; size and time of `log.json` and its last 300 dongle-related lines (per-model timing stats left out); the end of the newest `run-*.log`; the end of `FATAL_CRASH_REPORT.txt` if present (`compass/app/level_x/key_diag.py`) |
-| Dongle record | see [record](#dongle-record-v5) |
+| Dongle record | see [record](#dongle-record-v7) |
 | Tamper log | the persistent User Data page (64 entries) |
 | RAM log | the dongle's last ~4 KB of events (heartbeat, sleep, wake-up) |
 
@@ -128,16 +128,22 @@ The Secure world counts how many times each algorithm of `src/prod/logic` ran (`
 * **Since boot, in RAM:** handshakes rejected and requests that did not decrypt (counted in the NSC gates); TinyFrame frames with a bad checksum (`tf_rx_cksum_errors` in the Non-Secure `TinyFrame.c`); minimum battery voltage and min / max temperature (60 s samples).
 * **Last 4 failed secure commands**, newest first: dongle time, command, the first 11 characters of the error with the `ERR: ` prefix removed. They are recorded by the Non-Secure router (`diag_stats.c`) for every secure route that answers with an error, including chunk errors.
 
-## Dongle record v5
+## Dongle record v7
 
 `src/core/diag_record.h`, `_Static_assert` size 256, little-endian, packed; the field list is mirrored in `RECORD_FIELDS` in `sealed_record_decoder.py`:
-* `magic 0xD1A6`, version 5, flags (provisioning build, tamper live wipe, certificate present);
+* `magic 0xD1A6`, version 7 (the decoder also reads v6, which has no energy mode times), flags (provisioning build, tamper live wipe, certificate present);
 * firmware version, PC time, dongle time, license start / days, clock at boot, last NVM3 checkpoint, uptime, raw reset cause, NVM3 free / total / erase count;
 * chip EUI64, identity key and certificate fingerprints (SHA-256, first 8 bytes);
 * license days left / status, active users, user limit, tamper events since boot, tamper log entries, battery %, debug lock flags, session flags (session open during DIAG), 10 tamper type counters;
 * battery now / average / minimum / trend, temperature now / minimum / maximum;
 * 7 algorithm run counters, lifetime boots and 7 reset-cause counters, handshakes rejected, decrypt failures, bad-checksum frames;
-* 4 error entries (16 B: time, command, 11 characters), 24 reserved bytes, CRC-32 (zlib).
+* 4 error entries (16 B: time, command, 11 characters);
+* license days used, clock reset penalty (s), NVM3 save interval (s), clock counter frequency (Hz);
+* seconds since boot in EM0 (CPU running), EM1 (idle, high-frequency clocks on) and EM2 (deep sleep), and the number of EM2 entries (`src/core/power_stats.c`, power manager transition events, RAM only); CRC-32 (zlib).
+
+The support report shows them as **Energy modes** with the share of each mode. On battery the dongle should be almost all EM2: much EM1 time means something holds the EM1 requirement (until 2026-11-04 the UART stream did, `SL_IOSTREAM_EUSART_IO_STREAM_USERT_RESTRICT_ENERGY_MODE_TO_ALLOW_RECEPTION 1`). After a sleep the firmware also logs the totals on the first host byte (`[MCU] Awake (host traffic). Since boot: ...`).
+
+The clock and license values are taken at `MSG_DIAG_BEGIN`, the moment of the PC time, so "dongle minus PC" compares one instant. With them the record holds every value of the factory firmware's RTC report (`MSG_DEBUG_TIME`, `security_rtc_get_time_report()`): `keyadmin/secure_debug/rtc_report.py` rebuilds that report line for line (texts in `RTC_REPORT_*` in `keyadmin/core/constants.py`). It is part of the support report (`[CLOCK AND LICENSE REPORT]`), and the keyadmin menu item **Detailed Global RTC Diagnostics** shows it on production firmware, which answers no plaintext diagnostics. On the factory firmware, both reports with the same PC time were identical, 11 of 11 lines (2026-11-04).
 
 ## Wire format
 
