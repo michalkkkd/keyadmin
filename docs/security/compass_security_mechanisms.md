@@ -585,7 +585,7 @@ sequenceDiagram
     Note over Host,MCU: 2. Obliczenia algorytmiczne
     alt Obliczenia na mikrokontrolerze (Sim_PK_GI / Safe Space)
         Host->>MCU: Algorytm (payload, vrx_token)
-        Note over MCU: security_verify_vrx_token(clear=false):<br/>Token zgodny? -> Wykonaj | Błędny? -> Tamper Alert
+        Note over MCU: security_verify_vrx_token(close=false):<br/>Token otwarty? -> Wykonaj | Wygasły? -> błąd bez punktu | Nigdy niewydany? -> Tamper Alert
         MCU-->>Host: Wyniki binarne
     else Obliczenia lokalne (Dopasowanie / Parsowanie)
         Host->>Host: Przeliczenie numeryczne w wątku roboczym
@@ -593,7 +593,7 @@ sequenceDiagram
 
     Note over Host,MCU: 3. Zwieńczenie transakcji PRZED wyrenderowaniem UI
     Host->>MCU: MSG_VRX (user_hash, vrx_token)
-    Note over MCU: security_verify_vrx_token(clear=true):<br/>Atomowe skasowanie expected_vrx_token = 0
+    Note over MCU: security_verify_vrx_token(close=true):<br/>Zamknięcie tylko tego tokenu (przeniesienie do listy wygasłych)
     MCU-->>Host: Status: OK
 
     Note over UI,Host: 4. Bezpieczna prezentacja w DOM
@@ -604,13 +604,19 @@ sequenceDiagram
 
 1. **Przeniesienie stanu do krzemu:** Zgoda na wykonanie i dokończenie operacji nie zależy od flagi w Pythonie (podatnej na NOP-owanie czy hooking), lecz od dynamicznego tokenu w pamięci RAM mikrokontrolera powiązanego z `user_hash`.
 2. **Kolejność krytyczna (*Obliczenia $\rightarrow$ VRX $\rightarrow$ Frontend*):** Żadne dane wyjściowe, tabele ani wykresy nie trafiają do widżetów DOM przed potwierdzeniem z mikrokontrolera. Zatrzymanie lub przerwanie procesu przed `XRouter.vrx()` pozostawia UI w stanie zablokowanym, a wyliczone dane są niszczone w pamięci roboczej.
-3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) atomowo zeruje `expected_vrx_token = 0`. Ponowna próba użycia tego samego tokenu traktowana jest jako atak powtórzeniowy (replay attack) i wyzwala sprzętowy alarm (`tamper_event_count++`).
+3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) zamyka token bloku. Token, którego dongle nigdy nie wydał (usunięty `check_license`, zero, zgadywanie), jest zdarzeniem tamper `VRX_MISMATCH` (próg 3, potem wipe). Token wydany, ale już zamknięty lub wyparty, dostaje zwykły błąd `ERR: VRX token expired` **bez punktu**: kto go ma, przeszedł `check_license`, więc to błąd kolejności po stronie hosta, a nie obejście licencji.
 4. **Celowe złamanie zasady DRY:** Wyeliminowano uniwersalne dekoratory i menedżery kontekstu (będące pojedynczym punktem podatności). Każdy handler posiada jawną sekwencję:
    - Parametr `vrx_token: int` jest bezwzględnie wymagany (brak wartości domyślnych `= 0`).
    - Usunięto warunki `if vrx_token:` – wywołanie `XRouter.vrx(vrx_token)` jest bezwarunkowe.
 5. **Implementacja w firmware:** Plik [`KeyFirmware/src/core/security_users.c`](../../../KeyFirmware/src/core/security_users.c) obsługuje generację tokenu w `security_generate_vrx_token()` (wołanej przy `MSG_CHECK_LIC`) oraz weryfikację w procedurze `security_verify_vrx_token()`:
-   - Z `clear_on_success=false` dla algorytmów MCU: [`sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c), [`safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c), [`safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c).
-   - Z `clear_on_success=true` dla `MSG_VRX` (`0x16`).
+   - Z `close_token=false` dla algorytmów MCU: [`sim_pk_gi.c`](../../../KeyFirmware/src/prod/logic/sim_pk_gi.c), [`safe_space_estimates.c`](../../../KeyFirmware/src/prod/logic/safe_space_estimates.c), [`safe_space_plots.c`](../../../KeyFirmware/src/prod/logic/safe_space_plots.c).
+   - Z `close_token=true` dla `MSG_VRX` (`0x16`).
+   - Wynik to `nsc_vrx_result_t`: `NSC_VRX_OK`, `NSC_VRX_EXPIRED` (odpowiedź `ERR: VRX token expired`), `NSC_VRX_REJECTED` (zdarzenie tamper, odpowiedź `ERR: Tamper attempt detected...`).
+6. **Wiele bloków naraz (od 2026-11-05):** Compass prowadzi równolegle kilka bloków `check_license` → `vrx` jednego użytkownika (zadania asyncio, wątki, dashboard w benchmarku). Dongle trzyma więc **pulę 32 otwartych tokenów** (wszyscy użytkownicy razem; przy pełnej puli wypada najstarszy) i **listę 32 ostatnio zamkniętych lub wypartych**. Otwarty token jest ważny przez cały blok, także gdy użytkownik wypadł z 10-minutowego okna aktywności.
+   - **Porzucone bloki** (akcja przerwana w przeglądarce, brak `MSG_VRX`): tokeny użytkownika, który przez **180 s** (`VRX_IDLE_EXPIRE_S`, zegar uptime) nie użył żadnego tokenu, są zamykane i trafiają na listę wygasłych. Każde użycie tokenu (nowy `check_license`, obliczenie, `MSG_VRX`) odświeża **wszystkie** otwarte bloki tego użytkownika, więc długi blok nadrzędny (np. benchmark), którego bloki wewnętrzne stale rozmawiają z donglem, nie wygasa. Wygasa natomiast pojedynczy blok, który dłużej niż 180 s liczy tylko na hoście bez żadnej komendy do dongla: jego wynik kończy się błędem `expired` (bez punktu tamper).
+   - Po stronie hosta każda instancja `XCall` ([`app/level_x/xcall.py`](../../../compass/app/level_x/xcall.py)) ma **własny** token. Nie ma globalnego „aktywnego bloku” ani przejmowania tokenu przez inne instancje. Wywołanie urządzenia bez bloku wywołującego (`XRouter.*` z `xcall=None`, np. z `pk_calculations`) otwiera i zamyka własny blok.
+   - Powód zmiany: 2026-11-05 o 01:28 dwanaście równoległych `_load_heavy_data` (SSD) przejęło token jednego bloku. Ten blok zamknął go przez `vrx()`, a kolejne trzy obliczenia wysłały zamknięty token. Wynik: 3 × `VRX_MISMATCH` i wipe NVM3.
+   - **Kolejność wdrożenia:** nowy `XCall` wymaga nowego firmware'u. Ze starym (jeden token na użytkownika) bloki zagnieżdżone nadpisują sobie token i wyzwalają wipe.
 
 ### 7.2 Zabezpieczone Punkty Wejścia w Compass
 
@@ -625,7 +631,7 @@ sequenceDiagram
 
 ### 7.3 Telemetria i Audyt `[XROUTER]`
 
-Każda operacja pobrania i zwieńczenia tokenu jest logowana w formacie JSON w `app/logs/log.json` ([`app/core/logger.py`](../../../compass/app/core/logger.py)):
+Każda operacja pobrania i zwieńczenia tokenu jest logowana przez `keycomm` (`CompassApi`) na konsolę Compass, **nie** do `data/logs/log.json` (tam trafiają tylko ostrzeżenia i błędy `[XCALL]` oraz błędy obliczeń z odpowiedzią dongla):
 ```json
 {"timestamp": "2026-10-15 21:28:42", "class": "CompassApi", "level": "info", "message": "[XROUTER] check_license | user_email='admin@example.com' | user_hash=1433171261 | valid=True | received_vrx_token=1673312591"}
 {"timestamp": "2026-10-15 21:28:48", "class": "CompassApi", "level": "info", "message": "[XROUTER] vrx | user_email='admin@example.com' | user_hash=1433171261 | sent_vrx_token=1673312591 | status=OK"}

@@ -75,6 +75,32 @@
     {
       "timestamp": "2026-11-03T13:24:41+00:00",
       "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-05T00:47:37+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-05T00:47:37+00:00",
+      "event": "UNLOCK",
+      "challenge": "1F755B66714F8C14FED5711C419CC52D",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
+    },
+    {
+      "timestamp": "2026-11-05T01:46:19+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-05T01:47:07+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-05T01:47:07+00:00",
+      "event": "UNLOCK",
+      "challenge": "1F755B66714F8C14FED5711C419CC52D",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
     }
   ],
   "usb_port": "COM10",

@@ -164,7 +164,7 @@ Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie z
 * **Nic, co loguje świat Secure, nie trafia na USB.** W obrazie Secure `send_log()` jest zaślepką (`sec_main.c`), a `tamper_manager_init(NULL)` pozostawia `active_tf` puste. Linia `SECURITY ALERT` dla każdego zdarzenia i końcowa linia `CRITICAL: SELF-DESTRUCT` są budowane, ale odrzucane.
 * Co host faktycznie widzi:
   * PC5 / PC6 events: in the factory provisioning firmware `tamper_simulation.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. In both builds the LED lights for 1 s.
-  * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`).
+  * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`). Token wydany przez dongle, ale już zamknięty, dostaje `ERR: VRX token expired` i **nie** jest zdarzeniem tamper ([compass_security_mechanisms.md, 7.1 pkt 6](compass_security_mechanisms.md#71-architektura-zabezpieczenia-i-zasady-ochrony)).
   * `MSG_SYS_HEALTH` (`0x10`, factory provisioning firmware only): `TamperEvents:<total>, Temp:<t>, TamperLog:<entries in the persistent log>`.
   * Production firmware: the tamper counters and the tamper log page reach the host only inside the DIAG stream that the dongle encrypts with the Tamper Log Key ([diagnostics.md](diagnostics.md)), readable by KeySec admin only.
 * **Trwały log zdarzeń**: każde zdarzenie tamper jest zapisywane, zaszyfrowane AES, na **stronie User Data `0x0FE00000`**, która przetrwa kasowanie. Wpis zdarzenia, które osiągnęło próg, ma flagę WIPE. Zob. [Trwały log tamper](#trwały-log-tamper-strona-user-data). Stary rekord Black Box (192 B, zapisywany jednorazowo po osiągnięciu progu) został usunięty: log zawiera już zdarzenie wyzwalające, jego czas i temperaturę.
@@ -181,7 +181,7 @@ Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie z
 | Blokada debug | Bez zmian | Resetowana do stanu odblokowanego przez SE: pusty układ można ponownie sflashować, a stronę User Data odczytać bez tokenu odblokowującego (log jest zaszyfrowany) |
 | Jeśli SE odmówi (device erase wyłączony) | nie dotyczy | Rozwiązanie awaryjne: obiekty NVM3 są usuwane, potem `tamper_manager_self_destruct_ram()` kasuje główną pamięć flash strona po stronie, działając z RAM, a następnie zatrzymuje układ |
 
-> **Nawet tryb deweloperski niszczy dane klienta:** 3 niezgodności tokenu VRX w jednym cyklu zasilania wystarczą, by usunąć licencję i klucz tożsamości z NVM3.
+> **Nawet tryb deweloperski niszczy dane klienta:** 3 niezgodności tokenu VRX w jednym cyklu zasilania wystarczą, by usunąć licencję i klucz tożsamości z NVM3. Tak się stało 2026-11-05 (benchmark Compass, 12 równoległych bloków SSD dzielących jeden token); od tej pory dongle trzyma pulę tokenów, a zamknięty token nie daje punktu.
 
 Device erase pozostaje dostępny, ponieważ `sec_debug_lock.c` nigdy nie wywołuje `sl_se_disable_device_erase()`. Jeśli kiedykolwiek zostanie wywołana, zostanie tylko awaryjne kasowanie z RAM. Nie sprawdzono, czy MSC (kontroler pamięci flash) świata Non-Secure może kasować strony flasha świata Secure, więc rozwiązanie awaryjne może pozostawić kod Secure nienaruszony.
 
