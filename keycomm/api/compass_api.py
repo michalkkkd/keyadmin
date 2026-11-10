@@ -67,6 +67,8 @@ class CompassApi:
         # Only a MSG_OK response counts: it is decrypted and its OK status is authenticated (AAD).
         # A plaintext error frame can never produce this prefix, whatever text it carries.
         ok = res.startswith(RESP_OK_PREFIX)
+        # The reply text of the last vrx, e.g. "ERR: VRX token expired" (Compass shows a toast for it)
+        self.last_vrx_response = res
         status_str = STATUS_OK if ok else STATUS_FAILED_FMT.format(res=res)
         logger.info(
             LOG_FMT_VRX.format(

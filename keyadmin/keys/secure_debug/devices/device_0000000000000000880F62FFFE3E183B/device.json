@@ -101,6 +101,21 @@
       "challenge": "1F755B66714F8C14FED5711C419CC52D",
       "response": "OK: Debug port unlocked until next reset",
       "success": true
+    },
+    {
+      "timestamp": "2026-11-05T16:43:03+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-05T16:43:03+00:00",
+      "event": "UNLOCK",
+      "challenge": "1F755B66714F8C14FED5711C419CC52D",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
+    },
+    {
+      "timestamp": "2026-11-05T16:47:52+00:00",
+      "event": "STATUS"
     }
   ],
   "usb_port": "COM10",
