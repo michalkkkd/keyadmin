@@ -147,9 +147,9 @@ Każdy detektor kończy się w jednej funkcji, `tamper_manager_detected(type, me
 
 | Typ | Źródło (kto wywołuje) | Próg |
 |---|---|---|
-| `PHYSICAL_PIN1` / `PIN2` | Przerwania GPIO PC5 / PC6, `tamper_simulation.c` (Non-Secure) → `nsc_tamper_manager_detected` | 3 / 3 |
-| `LOGICAL_VRX_SHORT` | Obcięty pakiet VRX, `prod_router.c` (Non-Secure) | 5 |
-| `LOGICAL_VRX_INVALID` / `MISMATCH` / `NO_SESSION` | `security_users.c` (Secure) | 5 / 3 / 5 |
+| `PHYSICAL_PIN1` / `PIN2` | Przerwania GPIO PC5 / PC6, `tamper_simulation.c` (Non-Secure) → `nsc_tamper_manager_detected` | 1 / 1 |
+| `LOGICAL_VRX_SHORT` | Obcięty pakiet VRX, `prod_router.c` (Non-Secure) | 30 |
+| `LOGICAL_VRX_INVALID` / `MISMATCH` / `NO_SESSION` | `security_users.c` (Secure) | 30 / 50 / 30 |
 | `VOLTAGE_GLITCH` | Flagi brown-out (spadku napięcia) AVDD / IOVDD0 w `EMU->IF`, odpytywane przez `tamper_manager_process()` | 2 |
 | `DIGITAL_GLITCH` | Flagi błędów HFXO w `HFXO0->IF`, to samo odpytywanie | 2 |
 | `TEMP_EXTREME` | `EMU_TemperatureGet()` co 5 s, poza zakresem -10..+70 °C | 3 |
@@ -171,35 +171,21 @@ Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie z
 
 ### Reakcja po osiągnięciu progu
 
+Jest **jedna** reakcja, taka sama w każdej kompilacji (stary przełącznik `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT` / `TAMPER_LIVE_WIPE` i tryb deweloperski zostały usunięte). `tamper_manager_trigger_wipe()` wykonuje po kolei:
+
 1. Zdarzenie wyzwalające jest już w trwałym logu z flagą WIPE.
-2. Reakcja zależy od przełącznika kompilacji `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT`:
+2. **Zrzut liczników użycia** (wpis `TAMPER_LOG_TYPE_USAGE_DUMP`): 6 liczników wywołań algorytmów (`usage_counters`) zapisywanych do logu jako jeden blok, zanim NVM3 zostanie skasowane.
+3. `sl_se_erase_device()` — masowe kasowanie przez Secure Engine, które **czyści i weryfikuje całą główną pamięć flash oraz RAM**: kod Secure + Non-Secure, NVM3 (licencja, liczniki, certyfikat, maks. liczba użytkowników, klucz tożsamości). Resetuje też konfigurację debug do stanu odblokowanego. **Przetrwają tylko: strona User Data (log tamper) oraz dane jednorazowe OTP w SE (Command Key).**
+4. Rozwiązanie awaryjne (gdy SE odmówi, tj. po `DEVICE_ERASE_DISABLE`): `tamper_manager_self_destruct_ram()` kasuje główną pamięć flash strona po stronie, działając z RAM, a potem zatrzymuje układ. U nas device erase pozostaje włączony (`sec_debug_lock.c` nigdy nie wywołuje `sl_se_disable_device_erase()`), więc ta gałąź praktycznie nie jest używana (a czy kasowanie z RAM na pewno obejmuje strony świata Secure — niezweryfikowane na sprzęcie).
 
-| | Tryb deweloperski (domyślny, `0`) | Kasowanie na żywo (`1`) |
-|---|---|---|
-| NVM3 (licencja, certyfikat, maks. liczba użytkowników, klucz tożsamości) | Usuwane (`security_nvm_wipe_all`) | Kasowane razem z resztą flasha |
-| Kod Secure + Non-Secure | Zachowany: dongle działa dalej | **Kasowany**: `sl_se_erase_device()`, masowe kasowanie przez Secure Engine, które czyści i weryfikuje całą główną pamięć flash **oraz RAM** |
-| Blokada debug | Bez zmian | Resetowana do stanu odblokowanego przez SE: pusty układ można ponownie sflashować, a stronę User Data odczytać bez tokenu odblokowującego (log jest zaszyfrowany) |
-| Jeśli SE odmówi (device erase wyłączony) | nie dotyczy | Rozwiązanie awaryjne: obiekty NVM3 są usuwane, potem `tamper_manager_self_destruct_ram()` kasuje główną pamięć flash strona po stronie, działając z RAM, a następnie zatrzymuje układ |
+**To nie jest trwały bric.** Po `sl_se_erase_device()` port debug jest otwarty, więc dongle flashujesz sondą SWD i provisionujesz normalnie — Command Key w OTP przeżywa, a `install_command_key` jest idempotentny. Trwale zbrickować mógłby tylko permanentny lock (`sl_se_disable_device_erase()` / reakcja „Erase OTP”), którego **nie** wykonujemy.
 
-> **Nawet tryb deweloperski niszczy dane klienta:** 3 niezgodności tokenu VRX w jednym cyklu zasilania wystarczą, by usunąć licencję i klucz tożsamości z NVM3. Tak się stało 2026-11-05 (benchmark Compass, 12 równoległych bloków SSD dzielących jeden token); od tej pory dongle trzyma pulę tokenów, a zamknięty token nie daje punktu.
-
-Device erase pozostaje dostępny, ponieważ `sec_debug_lock.c` nigdy nie wywołuje `sl_se_disable_device_erase()`. Jeśli kiedykolwiek zostanie wywołana, zostanie tylko awaryjne kasowanie z RAM. Nie sprawdzono, czy MSC (kontroler pamięci flash) świata Non-Secure może kasować strony flasha świata Secure, więc rozwiązanie awaryjne może pozostawić kod Secure nienaruszony.
-
-### Włączanie kasowania na żywo
-
-```bat
-set TAMPER_LIVE_WIPE=ON
-flashbat\compile.bat
-```
-
-`compile.bat` przekazuje `-D KEYFIRMWARE_TAMPER_LIVE_WIPE=ON|OFF` przy każdej konfiguracji, więc ustawienie nigdy nie zostaje w cache CMake. Gdy jest włączone (ON), CMake wypisuje ostrzeżenie. Każda kompilacja bez tej zmiennej to bezpieczna kompilacja w trybie deweloperskim.
-
-**Przed wysyłką z włączonym kasowaniem na żywo przejrzyj progi.** Zdarzenia osiągalne programowo (typy VRX) i środowiskowe (brown-out, HFXO, temperatura) mogą wtedy zniszczyć dongle klienta. Wystarczyłby błąd klienta, który w jednej sesji wyśle 3 błędne tokeny VRX.
+> **Kasowanie niszczy dane klienta — progi są celowo tolerancyjne.** Fizyczny tamper (PC5/PC6) i EMP kasują już od 1 zdarzenia; błędne tokeny VRX dopiero po 30–50 w jednym cyklu zasilania, żeby zacięta lub powtarzająca żądania aplikacja nie zbrickowała dongla od ręki. Incydent 2026-11-05 (benchmark Compass, 12 równoległych bloków SSD dzielących jeden token) był powodem podniesienia progów; od tej pory dongle trzyma pulę tokenów, a zamknięty token nie daje punktu. **Przed wysyłką przejrzyj progi** (`tamper_thresholds` w `tamper_manager.c`).
 
 **Test sprzętowy (dongle do poświęcenia):**
-1. Wgraj kompilację z kasowaniem na żywo.
-2. Trzykrotnie zewrzyj PC5 do GND.
-3. Dongle znika z USB. Jego flash odczytuje się jako `0xFF`, a `read_tamper_log.py` pokazuje zdarzenia PIN1, ostatnie z `-> WIPE`.
+1. Wgraj firmware produkcyjny.
+2. Zewrzyj PC5 do GND (próg 1).
+3. Dongle znika z USB. Jego flash odczytuje się jako `0xFF`, a `read_tamper_log.py` pokazuje zdarzenia PIN1 (ostatnie z `-> WIPE`) oraz wiersz `USE` z licznikami. Potem dongle flashuje się i provisionuje normalnie.
 
 Ta ścieżka nie była jeszcze uruchamiana na sprzęcie.
 
@@ -235,14 +221,14 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 | Secure Debug Lock (SWD zamknięte, odblokowanie tokenem) | **Aktywne**, gdy keyadmin zablokuje dongle (`sec_debug_lock.c`) | Device Erase pozostaje włączony (nigdy nie wywołujemy `sl_se_disable_device_erase()`). |
 | Secure boot (RTSL) | **Możliwe**, niewłączone | Trzeba zdecydować razem z OTP tamper SE (jedno wywołanie). |
 | Podział TrustZone (Secure / Non-Secure) | **Aktywne** | Logika tamper i sekrety znajdują się w świecie Secure. |
-| Device erase SE jako kasowanie | **Tylko kod** (`TAMPER_LIVE_WIPE=ON`), domyślnie OFF | Nietestowane na sprzęcie. |
+| Device erase SE jako reakcja na tamper | **Aktywne** (jedyna reakcja na osiągnięty próg) | `sl_se_erase_device()`; nietestowane na sprzęcie. |
 
 ### Nasze detektory programowe (`tamper_manager.c`)
 
 | Detektor | Status | Uwagi |
 |---|---|---|
-| Przerwania GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów) | **Tylko kod** | Wymaga przełącznika lub siatki podłączonych od PC5 / PC6 do GND. Bez tego pull-up trzyma piny w stanie wysokim i nic się nie wyzwala. Próg 3. |
-| Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 5 / 5 / 3 / 5. Może je też wyzwolić błąd klienta. |
+| Przerwania GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów) | **Tylko kod** | Wymaga przełącznika lub siatki podłączonych od PC5 / PC6 do GND. Bez tego pull-up trzyma piny w stanie wysokim i nic się nie wyzwala. Próg 1. |
+| Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 30 / 30 / 50 / 30 (tolerancyjne). Może je też wyzwolić błąd klienta. |
 | Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne** | Próg 2. `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać policzona jako zdarzenie (niezweryfikowane na sprzęcie). |
 | Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne** | Próg 2. Słaby start kwarcu też ustawia te flagi. |
 | `EMU_TemperatureGet()` poza -10..+70 °C -> `TEMP_EXTREME` | **Aktywne** | Próg 3, odpytywanie co 5 s. Dużo ostrzejsze niż specyfikacja układu -40..+125 °C; dongle w nagrzanym samochodzie lub w zimnym aucie kuriera może go wyzwolić. |
@@ -254,12 +240,12 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 
 Strona User Data (`0x0FE00000`, **1 KB**, jedyny obszar flash poza główną pamięcią flash w Series 2) nie jest kasowana przez device erase SE, mass erase, flashowanie ani odblokowanie debug. Cała strona mieści log zdarzeń: **64 wpisy x 16 B** (`tamper_log_entry_t`), pusty slot to same `0xFF`.
 
-**Jeden wpis logu (16 B):** typ zdarzenia (lub `0xF0` = uruchomienie po resecie tamper Secure Engine), licznik danego typu w tym cyklu zasilania, flaga „to zdarzenie wyzwoliło kasowanie”, timestamp RTC, uptime w sekundach, temperatura, CRC-16. Dowolne metadane tekstowe nie są zapisywane (zajmowałyby 4-8x więcej miejsca).
+**Jeden wpis logu (16 B):** typ zdarzenia (lub `0xF0` = uruchomienie po resecie tamper Secure Engine, `0xF1` = zrzut liczników użycia), licznik danego typu w tym cyklu zasilania, flagi (`WIPE` = to zdarzenie wyzwoliło kasowanie, `COALESCED` = wchłonął starsze zdarzenia tego samego typu), timestamp RTC (UNIX), uptime 24-bit, setne sekundy, temperatura, CRC-16. Dekoder (`tamper_log_decoder.py`) wypisuje czas w ludzkim formacie `YYMMDD HHMMSS.cc` i typy skrótem 3-literowym (np. `VXM`, `TMP`, `EMP`). Wpis `0xF1` niesie 6 liczników użycia algorytmów (uint16) zamiast pól zdarzenia. Metadane tekstowe nie są zapisywane (zajmowałyby 4-8x więcej miejsca).
 
 * **Szyfrowanie:** każdy wpis to jeden blok AES-128, szyfrowany przez Secure Engine (`sl_se_aes_crypt_ecb`) kluczem **Tamper Log Key** przed zapisem. Klucz jest wkompilowany w obraz Secure (`KeyFirmware/src/core/tamper_log_key.h`), więc kasowanie usuwa kopię w firmware. Kopia fabryczna to `KeySec/keyadmin/keys/tamper_log_key.bin`. Bez niej zrzut skasowanego dongla pokazuje tylko szyfrogram. Każdy wpis jest inny (RTC, uptime, licznik), więc ECB na pojedynczych blokach nie zdradza niczego użytecznego; atakujący widzi tylko, ile slotów jest zajętych. Jeśli SE odmówi szyfrowania, wpis jest pomijany, a nie zapisywany jawnym tekstem.
 * **Zarządzanie kluczem:** `python keyadmin/scripts/generate_tamper_log_key.py` tworzy klucz jednorazowo i zapisuje nagłówek; `--header-only` generuje ponownie nagłówek z istniejącego klucza. Nie twórz nowego klucza, gdy dongle są już u klientów: ich logów nie dałoby się wtedy odczytać. Po wygenerowaniu przebuduj firmware.
-* **Pojemność:** 64 zdarzenia. Gdy log jest pełny, 32 najstarsze wpisy są odrzucane, a 32 najnowsze zachowywane (jedno kasowanie strony). Najnowsze zdarzenia są więc zawsze dostępne.
-* **Zużycie:** wpisy są zapisywane do pustych slotów bez kasowania; kasowanie następuje tylko raz na 32 zdarzenia. Przy typowych 10 000 cyklach kasowania flasha daje to około 320 000 zdarzeń na dongle.
+* **Pojemność:** 64 wpisy. Gdy log jest pełny, **koalescencja** łączy najstarsze zdarzenia *najczęstszego* typu w jeden wpis (sumuje licznik, flaga `COALESCED`), zwalniając sloty; każdy rzadszy typ zachowuje własne wpisy z czasem. Dzięki temu zalew jednego typu (np. 50 niezgodności tokenu VRX) nie wypycha pozostałych zdarzeń z logu.
+* **Zużycie:** wpisy są zapisywane do pustych slotów bez kasowania; kasowanie strony następuje tylko przy koalescencji (gdy log się zapełni). Przy typowych 10 000 cyklach kasowania flasha daje to dziesiątki-setki tysięcy zdarzeń na dongle, zależnie od tego, jak często log się przepełnia.
 * **Utrata zasilania:** zapis przerwany w połowie nie przechodzi CRC po odszyfrowaniu i jest pokazywany jako `[CORRUPT or wrong key]`. Zanik zasilania podczas przepisywania strony (log pełny) może spowodować utratę logu: okno trwa kilka milisekund.
 * **Czego się nie loguje:** własnych zdarzeń tamper Secure Engine, poza resetami, które one powodują (brak jeszcze konfiguracji OTP), oraz niczego sprzed tej wersji firmware'u.
 
@@ -267,17 +253,17 @@ Strona User Data (`0x0FE00000`, **1 KB**, jedyny obszar flash poza główną pam
 
 | Stan dongla | Jak odczytać |
 |---|---|
-| Skasowany przez kasowanie na żywo (device erase SE się powiódł) | Kasowanie usunęło też blokadę debug, a dongle nie ma firmware'u (brak USB). Podłącz SWD i uruchom `python keyadmin/scripts/read_tamper_log.py`. Skrypt zrzuca 1 KB przez pyOCD, odszyfrowuje go kluczem `keyadmin/keys/tamper_log_key.bin` (lub `--key FILE`) i wypisuje log. |
-| Nadal działa (tryb deweloperski albo zablokowany, ale nieskasowany) | `secure_debug_lock.py unlock` lub odblokowanie z menu administracyjnego: po odblokowaniu tokenem keyadmin automatycznie zrzuca i dekoduje stronę (`userdata_dump.bin` w folderze dongla). |
+| Skasowany po tamperze (device erase SE się powiódł) | Kasowanie usunęło też blokadę debug, a dongle nie ma firmware'u (brak USB). Podłącz sondę SWD i uruchom `python keyadmin/scripts/read_tamper_log.py`. Skrypt zrzuca 1 KB przez pyOCD, odszyfrowuje go kluczem `keyadmin/keys/tamper_log_key.bin` (lub `--key FILE`) i wypisuje log. |
+| Zablokowany, ale jeszcze nieskasowany (np. dongle serwisowy) | `secure_debug_lock.py unlock` lub odblokowanie z menu administracyjnego: po odblokowaniu tokenem keyadmin automatycznie zrzuca i dekoduje stronę (`userdata_dump.bin` w folderze dongla). |
 | Wcześniejszy plik zrzutu | `python keyadmin/scripts/read_tamper_log.py --file <dump.bin>` |
 
 Po odczycie, zanim dongle wróci do użytku, skasuj stronę, bo ponowne flashowanie ją zachowuje: `commander device pageerase --region @userdata` (jeszcze nie uruchamiane na naszych donglach).
 
 ### Blokada debug po kasowaniu
 
-`sl_se_erase_device()` to komenda SE „Erase Device”. W Series 2 zawsze pozostawia układ **odblokowany** po następnym resecie. Tak działają standardowa i bezpieczna blokada debug, dopóki Device Erase jest włączony, i nie możemy tego zmienić. Fabryka może ponownie zablokować dongle po ponownym sflashowaniu (keyadmin `lock`; command key w OTP pozostaje).
+**To jest wybrany projekt (wariant B).** `sl_se_erase_device()` to komenda SE „Erase Device”. W Series 2 zawsze pozostawia układ **odblokowany** po następnym resecie (tak działają standardowa i bezpieczna blokada debug, dopóki Device Erase jest włączony — a u nas jest). Dzięki temu po tamperze log odczytuje się od razu sondą SWD, a dongle **flashuje się i provisionuje normalnie — to nie jest trwały bric**. Fabryka może ponownie zablokować dongle po sflashowaniu (keyadmin `lock`; Command Key w OTP pozostaje).
 
-Jeśli skasowany dongle musi pozostać zablokowany, alternatywą jest wyłączenie Device Erase (`sl_se_disable_device_erase()`, nieodwracalne) i poleganie na kasowaniu strona po stronie z RAM:
+**Niewybrana alternatywa:** gdyby skasowany dongle miał pozostać zablokowany, trzeba by wyłączyć Device Erase (`sl_se_disable_device_erase()`, nieodwracalne) i polegać na kasowaniu strona po stronie z RAM:
 
 * Blokada pozostaje wtedy włączona.
 * Tylko fabryka może otworzyć dongle tokenem secure debug, by odczytać log i ponownie sflashować.

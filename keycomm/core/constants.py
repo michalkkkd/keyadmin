@@ -20,6 +20,7 @@ MSG_DIAG_NEXT           = 0x17
 MSG_GET_LOG_SIZE        = 0x11
 MSG_GET_LOG_CHUNK       = 0x12
 MSG_VRX                 = 0x16
+MSG_TAMPER_CLEAR_LOG    = 0x18   # Admin maintenance: erase the persistent tamper log (encrypted secure route)
 
 MSG_SIM_PK_GI_INIT      = 0x30
 MSG_SIM_PK_GI_CHUNK     = 0x31
@@ -50,7 +51,7 @@ MSG_ERR                 = 0x81
 # Command IDs that require end-to-end encryption via SecureChannel
 SECURE_CMD_IDS = (
     MSG_CHECK_LIC, MSG_TEST_ADD, MSG_COMPASS_USERS,
-    MSG_GET_LOG_SIZE, MSG_GET_LOG_CHUNK, 0x15, MSG_VRX,
+    MSG_GET_LOG_SIZE, MSG_GET_LOG_CHUNK, 0x15, MSG_VRX, MSG_TAMPER_CLEAR_LOG,
     0x20, 0x21, 0x22,
     MSG_SIM_PK_GI_INIT, MSG_SIM_PK_GI_CHUNK, MSG_SIM_PK_GI_PROCESS, MSG_SIM_PK_GI_READ,
     MSG_SAFE_SPACE_INIT, MSG_SAFE_SPACE_CHUNK, MSG_SAFE_SPACE_PROCESS, MSG_SAFE_SPACE_READ,

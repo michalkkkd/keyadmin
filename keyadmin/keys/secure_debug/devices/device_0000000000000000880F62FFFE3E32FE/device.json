@@ -1,0 +1,23 @@
+{
+  "serial": "0000000000000000880F62FFFE3E32FE",
+  "events": [
+    {
+      "timestamp": "2026-11-12T04:21:54+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-12T04:24:47+00:00",
+      "event": "STATUS"
+    }
+  ],
+  "usb_port": "COM7",
+  "last_status": {
+    "serial": "0000000000000000880F62FFFE3E32FE",
+    "command_key": "NONE",
+    "builtin_key_present": true,
+    "secure_debug_enabled": false,
+    "lock_applied": false,
+    "lock_active": false,
+    "device_erase_enabled": true
+  }
+}

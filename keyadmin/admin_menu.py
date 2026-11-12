@@ -96,6 +96,12 @@ from keyadmin.core.constants import (
     ADMIN_HDR_LICENSE,
     ADMIN_HDR_BENCHMARK,
     ADMIN_HDR_DEVICE_LOGS,
+    ADMIN_ACT_CLEAR_LOG,
+    ACTION_CLEAR_LOG,
+    ADMIN_HDR_CLEAR_LOG,
+    ADMIN_CLEAR_LOG_WARNING,
+    ADMIN_CLEAR_LOG_PROMPT,
+    ADMIN_CLEAR_LOG_WORD,
     ADMIN_HDR_HB_STATUS,
     ADMIN_HDR_HB_DISABLE,
     ADMIN_ALERT_TAMPER,
@@ -168,6 +174,7 @@ class KeySecMenu:
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_RTC, DICT_KEY_ID: ACTION_RTC_DIAG},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_LICENSE, DICT_KEY_ID: ACTION_LICENSE_USERS},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_LOGS, DICT_KEY_ID: ACTION_DEVICE_LOGS},
+            {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_CLEAR_LOG, DICT_KEY_ID: ACTION_CLEAR_LOG},
             {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ""},
             {DICT_KEY_TYPE: OPT_TYPE_HEADER, DICT_KEY_TEXT: ADMIN_SEC_TESTING},
             {DICT_KEY_TYPE: OPT_TYPE_ACTION, DICT_KEY_TEXT: ADMIN_ACT_BENCHMARK, DICT_KEY_ID: ACTION_BENCHMARK},
@@ -350,6 +357,15 @@ class KeySecMenu:
         elif action_id == ACTION_DEVICE_LOGS:
             print(ADMIN_HDR_DEVICE_LOGS)
             self.admin.print_all_logs()
+            self._pause()
+
+        elif action_id == ACTION_CLEAR_LOG:
+            print(ADMIN_HDR_CLEAR_LOG)
+            print(ADMIN_CLEAR_LOG_WARNING)
+            if input(ADMIN_CLEAR_LOG_PROMPT).strip() != ADMIN_CLEAR_LOG_WORD:
+                print(SDL_MSG_ABORTED)
+            else:
+                print(self.admin.clear_tamper_log())
             self._pause()
 
         elif action_id == ACTION_HB_START:

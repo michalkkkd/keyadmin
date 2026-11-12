@@ -17,6 +17,7 @@ MSG_NVM_DIAG           = 0x0F
 MSG_SYS_HEALTH         = 0x10
 MSG_GET_LOG_COUNT      = 0x11
 MSG_GET_LOG_LINE       = 0x12
+MSG_TAMPER_CLEAR_LOG   = 0x18  # Secure route: erase the persistent tamper log (User Data page)
 
 # Secure Debug Lock Command IDs (plaintext, both firmware variants)
 MSG_DEBUG_LOCK_STATUS    = 0x60
@@ -41,6 +42,7 @@ ACTION_DEBUG_LOCK_STATUS = 20
 ACTION_DEBUG_LOCK_APPLY  = 21
 ACTION_DEBUG_UNLOCK      = 22
 ACTION_PROVISION_DONGLE  = 30
+ACTION_CLEAR_LOG         = 23
 
 # CLI & Menu Navigation
 ADMIN_CONSOLE_BANNER   = "  === KEYSEC DONGLE ADMIN CONSOLE ==="
@@ -63,6 +65,7 @@ ADMIN_ACT_MEMORY       = "Memory & NVM3 Diagnostics"
 ADMIN_ACT_RTC          = "Detailed Global RTC Diagnostics"
 ADMIN_ACT_LICENSE      = "Check License & User Limits"
 ADMIN_ACT_LOGS         = "View Async Device Logs"
+ADMIN_ACT_CLEAR_LOG    = "Clear Tamper Log (erase User Data page)"
 ADMIN_ACT_DONGLE_DIAG  = "Dongle Diagnostics (this dongle, works on production firmware)"
 ADMIN_ACT_DECIPHER_DIAG = "Decipher Diagnostic Payload (paste what the customer sent)"
 ADMIN_ACT_BENCHMARK    = "Run Performance Benchmark (Algorithm Test)"
@@ -82,6 +85,10 @@ ADMIN_HDR_RTC          = "--- Detailed Global RTC Diagnostics ---"
 ADMIN_HDR_LICENSE      = "--- License & User Limits ---"
 ADMIN_HDR_BENCHMARK    = "--- Performance Benchmark ---"
 ADMIN_HDR_DEVICE_LOGS  = "--- Device RAM Logs ---"
+ADMIN_HDR_CLEAR_LOG    = "--- Clear Tamper Log ---"
+ADMIN_CLEAR_LOG_WARNING = "This erases the dongle's persistent tamper event log (User Data page). The encrypted log key, firmware, license and identity are kept."
+ADMIN_CLEAR_LOG_PROMPT = "Type CLEAR to confirm: "
+ADMIN_CLEAR_LOG_WORD   = "CLEAR"
 ADMIN_HDR_HB_STATUS    = "--- Heartbeat Status ---"
 ADMIN_HDR_HB_DISABLE   = "--- Disable Heartbeat Test ---"
 ADMIN_HDR_DEBUG_STATUS = "--- Secure Debug Lock Status ---"
@@ -633,7 +640,7 @@ RTC_FROM_DIAG_NOTE          = "   (production firmware: rebuilt from the encrypt
 MCU_ERR_UNKNOWN_COMMAND     = "Unknown command"
 DIAG_SEALED_MAGIC           = 0xD1A6
 DIAG_SEALED_FLAG_PROV       = 0x01
-DIAG_SEALED_FLAG_LIVE_WIPE  = 0x02
+# 0x02 reserved (was DIAG_SEALED_FLAG_LIVE_WIPE; the tamper wipe is always a device erase now)
 DIAG_SEALED_FLAG_CERT       = 0x04
 DIAG_SEALED_NO_TREND        = -32768
 # Same order as usage_counter_t in KeyFirmware src/core/usage_counters.h

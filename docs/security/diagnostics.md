@@ -143,7 +143,7 @@ The Secure world counts how many times each algorithm of `src/prod/logic` ran (`
 ## Dongle record v7
 
 `src/core/diag_record.h`, `_Static_assert` size 256, little-endian, packed; the field list is mirrored in `RECORD_FIELDS` in `sealed_record_decoder.py`:
-* `magic 0xD1A6`, version 7 (the decoder also reads v6, which has no energy mode times), flags (provisioning build, tamper live wipe, certificate present);
+* `magic 0xD1A6`, version 7 (the decoder also reads v6, which has no energy mode times), flags (provisioning build, certificate present; bit 0x02 reserved — the tamper wipe is always a device erase now);
 * firmware version, PC time, dongle time, license start / days, clock at boot, last NVM3 checkpoint, uptime, raw reset cause, NVM3 free / total / erase count;
 * chip EUI64, identity key and certificate fingerprints (SHA-256, first 8 bytes);
 * license days left / status, active users, user limit, tamper events since boot, tamper log entries, battery %, debug lock flags, session flags (session open during DIAG), 10 tamper type counters;

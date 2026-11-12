@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Tuple
 
 from keyadmin.core.constants import (
-    DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_RECORD_MIN_VERSION, DIAG_SEALED_MAGIC, DIAG_SEALED_FLAG_PROV, DIAG_SEALED_FLAG_LIVE_WIPE,
+    DIAG_SEALED_RECORD_VERSION, DIAG_SEALED_RECORD_MIN_VERSION, DIAG_SEALED_MAGIC, DIAG_SEALED_FLAG_PROV,
     DIAG_SEALED_FLAG_CERT, DIAG_SEALED_NO_TREND, DIAG_SESSION_ACTIVE, DIAG_USAGE_NAMES,
     DIAG_ERR_SEALED_LEN_FMT, DIAG_ERR_SEALED_INVALID,
 )
@@ -198,7 +198,6 @@ def _debug_lock(flags: int) -> str:
 def format_sealed_record(rec: SealedRecord) -> str:
     fw = f"{rec.fw_version >> 16}.{(rec.fw_version >> 8) & 0xFF}.{rec.fw_version & 0xFF}"
     build = "provisioning" if rec.flags & DIAG_SEALED_FLAG_PROV else "production"
-    wipe = "live (device erase)" if rec.flags & DIAG_SEALED_FLAG_LIVE_WIPE else "dev (NVM3 only)"
     lic_end = rec.lic_start + rec.lic_days * SECONDS_PER_DAY if rec.lic_start else 0
     status = LICENSE_STATUS_NAMES[rec.lic_status] if rec.lic_status < len(LICENSE_STATUS_NAMES) else rec.lic_status
     trend = "not enough samples yet" if rec.vbat_trend_mv_10min == DIAG_SEALED_NO_TREND \
@@ -210,7 +209,7 @@ def format_sealed_record(rec: SealedRecord) -> str:
         "[DONGLE]  (times UTC)",
         f"  Chip ID (EUI64) : {rec.eui64:016X}",
         f"  Identity / cert : key {rec.identity_fp.hex().upper()}, certificate {cert}",
-        f"  Firmware        : {fw} {build}, tamper wipe {wipe}, record v{rec.version}",
+        f"  Firmware        : {fw} {build}, record v{rec.version}",
         f"  Debug lock      : {_debug_lock(rec.debug_lock)}",
         f"  Session         : {'open (Host Key handshake worked)' if rec.session & DIAG_SESSION_ACTIVE else 'NONE'}",
         f"  Dongle time     : {utc(rec.dongle_time)}  (PC {utc(rec.pc_time)}, dongle {rec.clock_diff_s:+d} s)",

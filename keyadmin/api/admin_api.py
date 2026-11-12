@@ -18,6 +18,7 @@ from keyadmin.core.constants import (
     MSG_SYS_HEALTH,
     MSG_GET_LOG_COUNT,
     MSG_GET_LOG_LINE,
+    MSG_TAMPER_CLEAR_LOG,
     MSG_DEBUG_LOCK_STATUS,
     MSG_DEBUG_LOCK_APPLY,
     MSG_DEBUG_LOCK_CHALLENGE,
@@ -85,6 +86,9 @@ class AdminApi:
 
     def get_battery_info(self) -> str:
         return self.rpc.execute_command(MSG_BATTERY_INFO)
+
+    def clear_tamper_log(self) -> str:
+        return self.rpc.execute_command(MSG_TAMPER_CLEAR_LOG)
 
     def get_debug_lock_status(self) -> str:
         return self.rpc.execute_command(MSG_DEBUG_LOCK_STATUS)
