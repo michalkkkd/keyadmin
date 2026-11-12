@@ -31,7 +31,7 @@ LOG_CAPACITY = USERDATA_SIZE // LOG_ENTRY_SIZE  # 64
 
 # Same order as tamper_type_t / TAMPER_STR_* in KeyFirmware
 TAMPER_TYPE_NAMES = (
-    "Physical PIN1 (PC5)", "Physical PIN2 (PC6)", "VRX Payload Short", "VRX Token Invalid",
+    "Physical PIN1 (PC0-D0)", "Physical PIN2 (PC5-D5)", "VRX Payload Short", "VRX Token Invalid",
     "VRX Token Mismatch", "VRX No Session", "Extreme Temperature", "Voltage Glitch",
     "Digital/Clock Glitch", "EMP Injection",
 )

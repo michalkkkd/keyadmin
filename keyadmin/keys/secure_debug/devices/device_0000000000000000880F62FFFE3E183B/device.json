@@ -116,16 +116,27 @@
     {
       "timestamp": "2026-11-05T16:47:52+00:00",
       "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-10T20:59:53+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-10T20:59:53+00:00",
+      "event": "UNLOCK",
+      "challenge": "1F755B66714F8C14FED5711C419CC52D",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
     }
   ],
-  "usb_port": "COM10",
+  "usb_port": "COM12",
   "last_status": {
     "serial": "0000000000000000880F62FFFE3E183B",
     "command_key": "MATCH",
     "builtin_key_present": true,
     "secure_debug_enabled": true,
     "lock_applied": true,
-    "lock_active": false,
+    "lock_active": true,
     "device_erase_enabled": true
   }
 }

@@ -9,6 +9,7 @@ Ten plik zbiera ustalenia z rozmów o tym, jak dongle (Seeed XIAO MG24, EFR32MG2
 * **Jedno otwarcie obudowy = wipe** (próg 1, już w źródle).
 * **Nie dokładamy na płytce rezystorów, dzielników ani innych elementów.** Kolega przylutował tylko druciki do D0 i D5; przy otwarciu obudowy drucik się zrywa.
 * Błąd zegara licencji ±3 % na rok (LFRCO bez trybu precision) jest **akceptowalny**.
+* **Decyzja 2026-11-10: zegar licencji może chodzić na ULFRCO** (prawdziwe EM3). Akceptowany błąd licencji to **od −20 do +35 dni na rok** (ULFRCO 0,944–1,095 kHz, czyli od −5,6 % do +9,5 %, datasheet EFR32MG24 tab. 4.30, s. 64). Uzasadnienie użytkownika: przy kluczu nie wpiętym do serwera przez miesiąc odchyłka to ok. 2–3 dni (ok. 10 %), co jest do przyjęcia. Zysk prądu wobec EM2 na LFRCO: ok. 0,2 µA (tab. 4.6.1, s. 30). Przejście na ULFRCO jeszcze nie jest zrobione. **Tego samego dnia użytkownik zdecydował: zostajemy na EM2 + LFRCO**, bo różnica czasu na baterii to tylko ok. 2–3 % (szacunek: EM2 ok. 10–17 mies., EM3 ok. 10–17,5 mies.), a 10–17 miesięcy wystarcza. ULFRCO pozostaje dopuszczalną opcją, nie planem. **Następnie (2026-11-10) użytkownik wybrał LFRCO w trybie precyzyjnym** (`SL_CLOCK_MANAGER_LFRCO_PRECISION = cmuPrecisionHigh` w `KeyFirmware/config/sl_clock_manager_oscillator_config.h`): ±500 ppm zamiast ±3 % (datasheet tab. 4.29, s. 64), czyli ok. ±4,4 h zamiast ±11 dni na rok, kosztem ok. 0,5 µA (szacunek ok. 10,5–16 mies. na baterii zamiast 11–17). Wymaga HFXO (`SL_CLOCK_MANAGER_HFXO_EN 1`, jest). Wgrane na dongle 2026-11-10; linia `PWR CFG` pokazuje `lfrco_cfg` (bit HIGHPRECEN).
 * Bluetooth **usunięty całkowicie** z KeyFirmware (zrobione 2026-11-04, nie wgrane).
 * Własny kod usypiania z **ominięciem menedżera zasilania SDK (prawdziwe EM3) odrzucony całkowicie**.
 * Przeniesienie SYSRTC/LFRCO/CMU do świata Secure **odłożone** (dziś świat Non-Secure mógłby zamrozić zegar licencji).
@@ -23,6 +24,7 @@ Ten plik zbiera ustalenia z rozmów o tym, jak dongle (Seeed XIAO MG24, EFR32MG2
 3. **Drucik antitamper zrywany przy otwarciu bierze prąd cały czas**, dopóki obudowa jest zamknięta: wewnętrzny pull-up (35–55 kΩ, typ. 44 kΩ) do 3,3 V, drucik do masy, ok. **75 µA na pętlę** (sam drucik rozładowuje 85 mAh w ok. 47 dni, dwie pętle ok. 24 dni). Obejście bez rezystorów: **odczyt impulsowy** (co ok. 1 s włączyć pull-up na kilka µs, odczytać, wyłączyć): ok. 0,1–0,3 µA, opóźnienie wykrycia do 1 s. **Działa tylko w EM2**, bo w EM4 każde wybudzenie to pełny restart.
 4. **Kwarc LFXO 32,768 kHz na płytce jest:** oficjalna definicja płytki w Zephyrze (`boards/seeed/xiao_mg24/xiao_mg24.dts`) ma `&lfxo` ze `status = "okay"`, `ctune = <44>`, `precision = <50>`, a SYSRTC jest tam taktowany z LFXO. Piny kwarcu to PD00/PD01 (datasheet, tabela 6.5); mapa pinów Silicon Labs Arduino (`KeyFirmware/variant.txt`) ich nie używa. U nas `SL_CLOCK_MANAGER_LFXO_EN 0` i `CTUNE 63`; przy włączeniu ustawić CTUNE 44. Serwery MCP Silicon Labs mają dane procesora, ale nie płytki Seeed.
 5. **Prawdziwe EM3 jest u nas niemożliwe:** menedżer zasilania SDK schodzi najwyżej do EM2 (`simplicity_sdk_2026.6.1/platform_core/platform/service/power_manager/src/sleep_loop/sl_power_manager.c:775-785` i assert w linii 434), a w EM3 LFRCO i LFXO są zatrzymane (RM 12.3.1.5, s. 295; tabela 8.1, s. 161). Napis „EM3” w starym logu był błędny; dongle śpi w EM2.
+   **Uzupełnienie 2026-11-10:** w oprogramowaniu SDK nie ma osobnego EM3, ale sprzęt sam schodzi do poziomu EM3, gdy w uśpieniu nic nie używa LFRCO ani LFXO, czyli przy SYSRTC (sleeptimer) taktowanym z ULFRCO ([Power Manager overview](https://docs.silabs.com/gecko-platform/latest/platform-service-power-manager-overview/): „to reach the EM3 power numbers, peripherals ... need to run on ULFRCO”). Taką drogę użytkownik zaakceptował (patrz decyzje wyżej); do sprawdzenia na sprzęcie, czy nic innego (np. menedżer zegarów) nie trzyma LFRCO.
 6. **5 lat na tej baterii (LiPo 85 mAh, Akyga LP301525) jest niemożliwe** nawet bez obciążenia: samorozładowanie LiPo z układem zabezpieczającym ok. 2–5 %/mies., czyli stały pobór 2,4–5,9 µA.
 
 ## 1. Stan sprzętu i firmware antitamper
@@ -55,7 +57,7 @@ Ten plik zbiera ustalenia z rozmów o tym, jak dongle (Seeed XIAO MG24, EFR32MG2
 | EM0 | kilka mA | ✅ | ✅ | ✅ |
 | EM1 | 22,6 µA/MHz (DCDC) | ✅ | ✅ | ✅ |
 | EM2 | 2,9 µA (256 kB RAM), 1,3 µA (16 kB) | ❌ | ✅ | ✅ |
-| EM3 | 2,7 µA; LFRCO/LFXO zatrzymane; u nas niedostępny | ❌ | ✅ | ✅ |
+| EM3 | 2,7 µA; LFRCO/LFXO zatrzymane; osiągalny przez SYSRTC na ULFRCO (decyzja 2026-11-10) | ❌ | ✅ | ✅ |
 | EM4 | 0,25 µA, z BURTC na LFXO 0,64 µA; wybudzenie = reset | ❌ | budzi resetem | ❌ |
 
 ## 3. Jak dongle śpi (firmware po zmianach z 2026-11-04, zbudowany, nie wgrany)

@@ -100,6 +100,18 @@ Checks judged by keyadmin from the decrypted dongle record (and `AP_1` from the 
 | `TE_2` | Temperature range since boot | `WARN_1` left 0..50 C |
 | `AP_1` | Compass crash report | `WARN_1` `FATAL_CRASH_REPORT.txt` exists |
 
+## Battery drain lines in the RAM log (`PWR ...`)
+
+Since 2026-11-10 the RAM log is kept in `.noinit` RAM (`system_log.c`): a soft reset (watchdog, fault, reset pin, flashing) keeps it, power-on or brown-out clears it. `src/core/power_diag.c` writes compact `PWR` lines into it, never over USB. Read them after a battery run with keyadmin **Device RAM Logs** or in the DIAG report, **before the cell is empty** (an empty cell is a power-on and clears the RAM):
+
+* `PWR BOOT`: `warm` with the boot count and the uptime / battery mV saved just before the reset, or `cold` after power-on.
+* `PWR CFG`: DCDC `CTRL` / `STATUS` and the debugger flag (`DHCSR.C_DEBUGEN`) at boot.
+* `PWR S` every 10 min: battery mV, temperature, seconds in EM0 / EM1 / EM2 and EM2 entries in that period, wake-ups by PA09 / RTC / host bytes, sleep entries, PA09 probe (`rx=1`: something drives the SAMD11 TX line high on battery, i.e. the SAMD11 is powered or back-fed) and the debugger flag.
+* `PWR SLEEP` at each battery sleep entry: GPIO `MODEL`/`MODEH`/`DOUT` of ports A-D (only when they changed).
+* `PWR WAKE rx`: the first 3 PA09 wake-ups of each period.
+
+Field meanings are documented next to `PWR_FMT_*` in `src/core/core_messages.h`. The external trace-mesh tamper (`tamper_external.c`) is disabled in this build.
+
 ## Reset cause
 
 The Secure world captures `EMU->RSTCAUSE` once at boot (`sec_diag_init()`, after `tamper_manager_init()` has checked `SETAMPER`) and then clears it with `EMU_CMD_RSTCAUSECLR`. Before firmware 1.1.0 nothing cleared it and the bits added up since power-on. The first boot after updating from such firmware can therefore show old causes.
