@@ -3,7 +3,7 @@
 The AI Agent operating in this workspace MUST strictly adhere to the following enhanced programming principles at all times. These rules govern architectural decisions, code generation, refactoring strategies, and problem-solving.
 
 **[SHARED KNOWLEDGE BASE RULE]**
-This file (AGENTS.md) and all documents it references (indexed in docs/README.md, under docs/security/, docs/architecture/ and docs/firmware/) are the centralized knowledge base for both the **KeySec** and **KeyFirmware** projects. Agents working on KeyFirmware must reference these rules here. You no longer need to duplicate or synchronize these files to KeyFirmware.
+This file (AGENTS.md) and all documents it references (indexed in docs/README.md, under docs/security/, docs/architecture/, docs/compilation/, docs/firmware/ and docs/history/) are the centralized knowledge base for both the **KeySec** and **KeyFirmware** projects. Agents working on KeyFirmware must reference these rules here. You no longer need to duplicate or synchronize these files to KeyFirmware.
 
 ### COMPILATION & FLASHING INSTRUCTIONS FOR THE AGENT
 1. To compile: Execute the batch script `..\KeyFirmware\flashbat\compile.bat` (or from KeyFirmware root: `.\flashbat\compile.bat`). Always check if compilation is successful (exit code 0).

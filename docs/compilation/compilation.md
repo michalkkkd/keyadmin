@@ -235,12 +235,12 @@ This is the ultimate Nuitka command resulting from all the fixes above. It expli
 To aid in debugging the compiled `.exe` without needing a console window, we implemented two massive architectural improvements:
 
 ### Global Logging & Exception Catching
-We created a global `CompassLogger` (`../app/logger.py`). Rather than wrapping every function in a clunky `TryCatch` class, we implemented a true global failsafe:
+We created a global `CompassLogger` (`../app/core/logger.py`). Rather than wrapping every function in a clunky `TryCatch` class, we implemented a true global failsafe:
 1. **`sys.excepthook`:** Catching any fatal startup crashes on the main thread (like missing Nuitka dependencies) and instantly dumping a `../logs/FATAL_CRASH_REPORT.txt` containing the traceback, `sys.executable`, and working directory.
 2. **Tornado Monkey-Patching:** Because Panel relies on Tornado for its background async loop, unhandled exceptions in UI callbacks (like a button click crashing) are normally swallowed silently. We successfully patched `tornado.web.RequestHandler.log_exception` to route *all* background crashes directly into `CompassLogger`.
 
 ### Safe File Manager
-We centralized all file reads/writes across the 27 frontend modules into a Singleton `SafeFileManager` (`../app/file_manager.py`). 
+We centralized all file reads/writes across the 27 frontend modules into a Singleton `SafeFileManager` (`../app/core/file_manager.py`). 
 *   It securely relays operations to Pandas/YAML while utilizing dynamic `.exe` path detection (`os.path.abspath(sys.argv[0])`) to ensure user data is never saved into the temporary `%TEMP%` unpack folder. 
 *   It automatically handles missing folder creation and gracefully returns `None` on failures to prevent cascading crashes.
 

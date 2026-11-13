@@ -8,12 +8,12 @@
 
 ### Core Frameworks
 *   **HoloViz Panel** (and `bokeh`): frontend. `DIST_DIR` must be mapped to the `_unpack` folder after Nuitka compilation so JS/CSS are served.
-*   **tornado**: async web server for Panel. `log_exception` is monkey-patched in `app/logger.py` to route UI background crashes into `log.json`.
+*   **tornado**: async web server for Panel. `log_exception` is monkey-patched in `app/core/logger.py` to route UI background crashes into `log.json`.
 
 ### Data & Mathematics
 *   **pandas**: central to I/O. `read_excel` dynamically imports `openpyxl` (needs `--include-package=openpyxl` in Nuitka).
 *   **numpy** & **scipy**: scipy needs `--include-package=scipy` explicitly.
-*   **numbalsoda** & **numba**: JIT compilation and ODE solvers (see `numbalsoda.md`).
+*   **numbalsoda** & **numba**: JIT compilation and ODE solvers (see [`numbalsoda.md`](../history/numbalsoda.md)).
 
 ### File I/O & Formatting
 *   **PyYAML**: parses `current_config.yml` and session data via `SafeFileManager().read_yaml()`.
