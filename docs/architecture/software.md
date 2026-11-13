@@ -12,7 +12,7 @@ Firmware, który stale nasłuchuje na porcie VCOM (bez blokowania rdzenia) przy 
 
 ### Instrukcje kompilacji dla agenta
 1. Kompilacja: `cd cmake_gcc && cmake --build --preset default_config`
-2. Flashowanie: `.\xiao_mg24_flash.bat` (lub skrypt Python) w katalogu `cmake_gcc\build\base`.
+2. Flashowanie: `.\flash.bat` (lub `python xiao_mg24_flash.py`) w katalogu `KeyFirmware/flashbat/`; domyślnie wgrywa `cmake_gcc/build/base/keyfirmware.hex`.
 
 Narzędzia build/flash i provisioning opisuje [`../security/provisioning.md`](../security/provisioning.md).
 

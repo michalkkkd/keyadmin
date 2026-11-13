@@ -14,7 +14,7 @@ Przeprowadź migrację, wykonując następujące kroki:
 * Ponieważ konfiguracje JSON mogą być duże, używamy 4-etapowego protokołu chunkingu (`INIT`, `CHUNK`, `PROCESS`, `READ`).
 * Zarezerwuj 4 nowe, kolejne identyfikatory hex w `KeySec/keycomm/core/transport.py` (np. `0x40-0x43`).
 * Zarejestruj te identyfikatory w warstwie routingu firmware (`KeyFirmware/src/core/router_common.c/.h` + właściwy router domenowy; pliku `rpc_router.h` **nie ma**) i zaimplementuj 4 standardowe handlery. 
-* **API Pythona:** W `KeySec/keycomm/api/compass_api.py` napisz wrapper `execute_[method_name](data_dict)`, który serializuje cały słownik do JSON. NIE pisz ręcznych pętli chunkingu — po prostu deleguj wywołanie przez `return self.chunk_transport.execute(...)` z 4 nowymi identyfikatorami.
+* **API Pythona:** Logikę transmisji zamknij w klasie `[MethodName]Runner(BaseRunner)` w `KeySec/keycomm/logic_dummy/` (metody `execute_send` / `execute_process` / `execute_receive`), która dzielenie na fragmenty realizuje przez `ChunkStreamer` (`keycomm/core/chunk_streamer.py`) z 4 nowymi identyfikatorami — NIE pisz ręcznych pętli chunkingu. Następnie w `KeySec/keycomm/api/compass_api.py` dodaj cienki wrapper `execute_[method_name](self, data_dict, vrx_token)`, który serializuje słownik do JSON i deleguje jedną linią: `return [MethodName]Runner(self.rpc, self.user_hash, int(vrx_token)).execute(data_dict)` (wzorzec jak `execute_sim_pk_gi` → `SimPkGiRunner`, `compass_api.py:118-121`).
 
 **3. Integracja z frontendem (`compass`)**
 * Znajdź `[METHOD_NAME]` w logice `compass/app/`.
