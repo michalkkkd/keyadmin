@@ -256,7 +256,7 @@ Po kolei, prostymi słowami:
 3. Certyfikat dowodzi, że ten klucz tożsamości wystawiła nasza fabryka.
 4. Ze wspólnego sekretu powstają dwa klucze AES. Nimi szyfrowana jest cała dalsza rozmowa.
 
-Nowe klucze sesyjne powstają przy każdym połączeniu. Powstają też wtedy, gdy keycomm dostanie błąd sesji albo nie odszyfruje odpowiedzi (`protocol.py` robi wtedy ponowny handshake). Nie ma okresowej wymiany kluczy co minutę, choć opisuje ją starszy dokument `cryptography_flow_and_keys.md`.
+Nowe klucze sesyjne powstają przy każdym połączeniu. Powstają też wtedy, gdy keycomm dostanie błąd sesji albo nie odszyfruje odpowiedzi (`protocol.py` robi wtedy ponowny handshake). Nie ma okresowej wymiany kluczy co minutę (oba dokumenty są tu zgodne — starszy `cryptography_flow_and_keys.md` również stwierdza brak rotacji w trakcie sesji).
 
 ### 5.2 Odblokowanie portu SWD (Secure Debug)
 
@@ -311,7 +311,7 @@ Obecne klucze w `keyadmin/keys/` to **klucze deweloperskie** i leżą w git. Prz
 Starszy dokument opisuje plan, a nie obecny kod. Różnice:
 
 * **Klucz tożsamości owinięty PUF-em:** starszy dokument to zakładał, kod robi to od 2026-10-30 (`SL_PSA_KEY_LOCATION_WRAPPED` w `auth_manager.c`). Dongle provisionowane wcześniej mają klucz jawny do czasu ponownego provisioningu.
-* **Nie ma wymiany kluczy sesyjnych co minutę.** Nowy handshake jest tylko przy połączeniu i po błędzie. Jedną z przyczyn błędu jest wygaśnięcie sesji: dongle kończy ją sam po 5 minutach bez komend, a keycomm przy następnej komendzie robi nowy handshake.
+* **Brak wymiany kluczy sesyjnych co minutę** (oba dokumenty są tu zgodne — to nie jest różnica). Nowy handshake jest tylko przy połączeniu i po błędzie. Jedną z przyczyn błędu jest wygaśnięcie sesji: dongle kończy ją sam po 5 minutach bez komend, a keycomm przy następnej komendzie robi nowy handshake.
 * **Klucz publiczny Root CA nie jest wkompilowany w Compass.** To plik `root_ca_pub.pem` w `keys/` obok exe.
 * **Certyfikat to sam podpis Root CA** nad kluczem publicznym tożsamości, bez dodatkowych pól.
 

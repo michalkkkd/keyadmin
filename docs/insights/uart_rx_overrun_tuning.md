@@ -19,11 +19,11 @@ Aby definitywnie usunąć wąskie gardło bez migracji do RTOS (co dodałoby zna
    - **Wpływ**: Wykorzystuje ok. 0,8% z 256 KB pamięci RAM układu EFR32MG24, ale pozwala DMA bezpiecznie wchłonąć kilkadziesiąt pełnych zaszyfrowanych żądań, gdy CPU jest zajęty kryptografią.
 
 2. **Zwiększenie bufora aplikacji (MCU)**
-   - **Plik**: KeyFirmware/src/rpc_router.c
-   - **Zmiana**: Zwiększono lokalne tablice składania payloadu char out_buf[64] do char out_buf[256].
-   - **Wpływ**: Zapewnia warstwie aplikacji wystarczającą ilość pamięci stosu, aby bezpiecznie przetwarzać większe pakiety.
+   - **Plik**: KeyFirmware/app.c (plik `rpc_router.c` **nie istnieje**; routery są w `src/core/router_common.c`)
+   - **Zmiana**: Bufor składania przychodzącego payloadu to `uint8_t rx_buf[256]` (`app.c`). Lokalne bufory odpowiedzi w routerach admina to `out_buf[128]`/`out_buf[512]` (`admin_diag_router.c`).
+   - **Wpływ**: Zapewnia warstwie aplikacji wystarczającą ilość pamięci, aby bezpiecznie przetwarzać większe pakiety.
 
 3. **Zoptymalizowana logika timeoutu w Pythonie (PC)**
-   - **Plik**: KeySec/api/compass_api.py i KeySec/core/protocol.py
-   - **Zmiana**: Zmniejszono timeout execute_command z 15,0 s do 0,5 s i dodano 0,2 s opóźnienia na odzyskanie po uszkodzeniu pakietu.
-   - **Wpływ**: Jeśli w przyszłości poważna usterka sprzętowa lub zakłócenie EMI nadal uszkodzi bajt, Python wykryje brakującą odpowiedź w 500 ms (zamiast 15 sekund), po cichu odzyska sprawność i bezbłędnie ponownie wyśle pakiet.
+   - **Plik**: KeySec/keycomm/api/compass_api.py i KeySec/keycomm/core/protocol.py
+   - **Zmiana**: Obecny domyślny timeout `execute_command` to **2,0 s** (`timeout_sec`, `protocol.py`), z `max_retries=5`; w kodzie nie ma dodatkowego 0,2 s opóźnienia.
+   - **Wpływ**: Jeśli w przyszłości poważna usterka sprzętowa lub zakłócenie EMI nadal uszkodzi bajt, Python wykryje brakującą odpowiedź w ~2 s (zamiast 15 sekund) i ponowi wysyłkę do `max_retries` razy, odzyskując sprawność.

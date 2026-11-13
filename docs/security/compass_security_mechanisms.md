@@ -32,7 +32,7 @@ flowchart TD
             PUF["Krzemowy PUF (Physically Unclonable Function) [AKTYWNE - klucz tożsamości]"]
             TRNG["Sprzętowy Generator TRNG (NIST SP 800-90A/B/C) [AKTYWNE - 100%]"]
             DPA["Koprocesor Krypto z Maskowaniem DPA [AKTYWNE SPRZĘTOWO - 100%]"]
-            AT_MOD["Sprzętowy Moduł OTP Anti-Tamper: Glitch, Temp, EMP [NIEWYKORZYSTANE - 0% (Wymaga OTP)]"]
+            AT_MOD["Sprzętowy Moduł OTP Anti-Tamper (EMPGD/SUPGD -> filtr -> reset) [AKTYWNE w provisioningu produkcyjnym --lock; plytki dev nieuzbrojone]"]
         end
 
         subgraph APP_CORE["Główny Rdzeń Aplikacji (ARM Cortex-M33)"]
@@ -73,7 +73,7 @@ flowchart TD
 
 #### 5. Sensory Anomalii Zasilania (Voltage Glitch Detectors) — `[Aktywne: OTP uzbrojone (SE 18) + software log-only]`
 * **Opis sprzętowy:** Sprzętowy detektor skoków/zapadów napięcia zasilania Secure Engine (**supply glitch detector**, sygnał tamper SE **18** `SL_SE_TAMPER_ATAMPDET_SUPGD` w `sl_se_manager_defines.h`, numeracja S2C4 dla MG24). Uwaga: nazwy `VGLITCHFALLING`/`VGLITCHRISING` pochodzą z EFR32xG21 i **nie** dotyczą MG24. Wykrywa mikrosekundowe zaburzenia zasilania (fault injection).
-* **Stan w projekcie:** Sygnał SE 18 (SUPGD) jest **uzbrojony w OTP** na filtr→licznik→reset ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)). Programowy detektor rejestrów BOD (`tamper_manager_process()` czyta `EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)` → `tamper_manager_detected()`) jest **tylko-log** (próg `0xFFFFFFFF`, nigdy nie kasuje) — fałszywie wzbudza się przy wpięciu USB / inrush, a realny szybki glitch łapie uzbrojony SE 18.
+* **Stan w projekcie:** Sygnał SE 18 (SUPGD) jest **uzbrojony w OTP** na filtr→licznik→reset ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) **na donglach provisionowanych produkcyjnie (`provision_dongle --lock`); płytki deweloperskie pozostają nieuzbrojone** (`tamper_manager.c`: „Not configured on our dongles yet”). Programowy detektor rejestrów BOD (`tamper_manager_process()` czyta `EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)` → `tamper_manager_detected()`) jest **tylko-log** (próg `0xFFFFFFFF`, nigdy nie kasuje) — fałszywie wzbudza się przy wpięciu USB / inrush, a realny szybki glitch łapie uzbrojony SE 18.
 
 #### 6. Detektor Zakłóceń Zegara i Logiki Cyfrowej (digital/EMP glitch detector, sygnał SE **17** `SL_SE_TAMPER_ATAMPDET_EMPGD`) — `[Aktywne: OTP uzbrojone (SE 17) + software log-only]`
 * **Opis sprzętowy:** Wbudowany układ monitorujący stabilność wewnętrznych generatorów taktujących i wykrywający asynchroniczne szpilki zegarowe (clock glitching).
@@ -608,7 +608,7 @@ sequenceDiagram
 
 1. **Przeniesienie stanu do krzemu:** Zgoda na wykonanie i dokończenie operacji nie zależy od flagi w Pythonie (podatnej na NOP-owanie czy hooking), lecz od dynamicznego tokenu w pamięci RAM mikrokontrolera powiązanego z `user_hash`.
 2. **Kolejność krytyczna (*Obliczenia $\rightarrow$ VRX $\rightarrow$ Frontend*):** Żadne dane wyjściowe, tabele ani wykresy nie trafiają do widżetów DOM przed potwierdzeniem z mikrokontrolera. Zatrzymanie lub przerwanie procesu przed `XRouter.vrx()` pozostawia UI w stanie zablokowanym, a wyliczone dane są niszczone w pamięci roboczej.
-3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) zamyka token bloku. Token, którego dongle nigdy nie wydał (usunięty `check_license`, zero, zgadywanie), jest zdarzeniem tamper `VRX_MISMATCH` (próg 50, potem wipe). Token wydany, ale już zamknięty lub wyparty, dostaje zwykły błąd `ERR: VRX token expired` **bez punktu**: kto go ma, przeszedł `check_license`, więc to błąd kolejności po stronie hosta, a nie obejście licencji.
+3. **Jednorazowość i wykrywanie sabotażu:** Komenda `MSG_VRX` (`0x16`) zamyka token bloku. Token, którego dongle nigdy nie wydał, jest zdarzeniem tamper (próg 50, potem wipe): token zerowy lub puste parametry → `VRX_INVALID` (`security_users.c:219-223`); nieznany token aktywnego użytkownika → `VRX_MISMATCH`; brak sesji → `VRX_NO_SESSION`. Token wydany, ale już zamknięty lub wyparty, dostaje zwykły błąd `ERR: VRX token expired` **bez punktu**: kto go ma, przeszedł `check_license`, więc to błąd kolejności po stronie hosta, a nie obejście licencji.
 4. **Celowe złamanie zasady DRY:** Wyeliminowano uniwersalne dekoratory i menedżery kontekstu (będące pojedynczym punktem podatności). Każdy handler posiada jawną sekwencję:
    - Parametr `vrx_token: int` jest bezwzględnie wymagany (brak wartości domyślnych `= 0`).
    - Usunięto warunki `if vrx_token:` – wywołanie `XRouter.vrx(vrx_token)` jest bezwarunkowe.

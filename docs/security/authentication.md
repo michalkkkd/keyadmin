@@ -2,24 +2,18 @@
 
 Moved here from `compass/_internal/agent/authentication.md` (2026-11-04). The code paths below are in the **compass** repository (`app/...`) unless they say otherwise. Related: [Active Users Limit Mechanism](users_limit_mechanism.md) (how the dongle counts users).
 
-## Authentication & Keycloak Integration
+## Authentication (local email + password)
 
 ### Overview
-The Compass application relies on a Keycloak SSO (Single Sign-On) integration. Historically, the application handled frontend redirects via JavaScript evaluation. This approach proved highly unstable when the application was compiled with Nuitka into a standalone Windows executable (`.exe`).
+Compass authentication is **local**, not an external SSO. There is **no Keycloak** (nor any other SSO provider) anywhere in the codebase. Allowed logins are an email + password pair kept in `users.txt`; passwords are hashed with **scrypt** (`n=16384, r=8, p=1`, per-account salt) by `AuthManager` (`app/auth/auth_manager.py`). A successful login creates a server-side session token and a browser cookie.
 
-### What We Changed
-1. **Replaced `execute_javascript` with `pn.pane.HTML` Injection:**
-   - **The Problem:** Calling `pn.state.execute_javascript()` led to `AttributeError` exceptions inside the Nuitka executable runtime.
-   - **The Solution:** We bypassed direct Javascript evaluation by injecting a `pn.pane.HTML` widget containing `<script>` tags that trigger the `window.location.href` redirect to the Keycloak login server. This method is incredibly robust across both standard Python and compiled Nuitka runtimes.
+### How it works
+1. **Password check:** `AuthUI.verify_password()` → `AuthManager.verify_password()` (`app/auth/auth_manager.py`) recomputes the scrypt hash and compares it against the stored entry in `users.txt`.
+2. **Token + cookie:** on success, `AuthUI._handle_successful_login()` (`app/auth/auth_ui.py`) mints a token (`secrets.token_hex(32)`), records it server-side via `SessionStore.add_session(token, email, device)` (`app/auth/session_store.py`), and sets the browser cookie **`compass_auth`** by injecting a `pn.pane.HTML` `<script>` tag (`document.cookie = "compass_auth=…"`). No SSO redirect and no identity is passed through a URL parameter.
+3. **Session identity:** `CompassEngine` receives the authenticated `user_id` (email) through its constructor from the server-side session (`app/main.py`), not from the browser URL. `CompassEngine._get_session_ID()` (`app/frontend/compass_engine.py`) uses that `user_id` when present (otherwise it falls back to the `ID`/`mode` browser args for the non-authenticated/E2E path) to establish isolated session folders.
 
-2. **Session ID Passing:**
-   - User identity (e.g., email) is extracted following a successful login.
-   - We updated the routing architecture to pass this data cleanly via URL parameters (e.g., `?user_id=admin@example.com`).
-   - `CompassEngine._get_session_ID()` successfully parses this URL parameter upon redirect to establish isolated, secure session folders named after the authenticated user (e.g., `data/session/admin@example.com/`).
-
-### Agent Instructions for Future Work
-- **DO NOT** attempt to use `pn.state.execute_javascript()` for browser-side script execution, especially related to authentication. Always use `pn.pane.HTML` script injections.
-- If modifying the SSO flow, ensure that the final return redirect accurately maps the user identifier to `user_id` so that the `CompassEngine` backend correctly creates the user-specific session folder.
+### Note on the `pn.pane.HTML` injection
+The `pn.pane.HTML` `<script>` approach (instead of `pn.state.execute_javascript()`) is used because `execute_javascript()` raised `AttributeError` inside the Nuitka-compiled runtime. It is used here only to **set the `compass_auth` cookie and reload**, not to redirect to any SSO server.
 
 ## One Account, One Computer at a Time
 A company buys a dongle user limit (e.g. 3 concurrent users); sharing one login across several computers must not get around it. The Compass server enforces it; nothing about it is decided or encoded in the browser. `SessionGuard` (`app/auth/session_guard.py`) holds the session side of it; `app/main.py` only calls `SessionGuard.open_session()` and `SessionGuard.logout()`:

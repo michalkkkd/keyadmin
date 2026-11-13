@@ -255,8 +255,8 @@ Filtr: okno `SL_SE_TAMPER_FILTER_PERIOD_33S`, próg `SL_SE_TAMPER_FILTER_THRESHO
 |---|---|---|
 | Odpytywanie GPIO PC5 / PC0 (przełącznik obudowy, siatka przewodów; pull-up impulsowy co 1 s) | **Aktywne** | `tamper_external_init()` wołane w `app.c`; co 1 s włącza pull-up i próbkuje piny. Wymaga fizycznego przełącznika/siatki od pinów do GND — bez okablowania pull-up trzyma piny wysoko i nic się nie wyzwala. Próg 1. |
 | Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 50 / 50 / 50 / 50 (tolerancyjne). Może je też wyzwolić błąd klienta. |
-| Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne** | Próg 2. `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać policzona jako zdarzenie (niezweryfikowane na sprzęcie). |
-| Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne** | Próg 2. Słaby start kwarcu też ustawia te flagi. |
+| Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne (log-only)** | Próg `0xFFFFFFFF` — **nigdy nie kasuje** (log-only, `tamper_manager.c:45`); realny szybki glitch łapie uzbrojony SE 18 (poziom 4 reset). `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać zalogowana jako zdarzenie (niezweryfikowane na sprzęcie). |
+| Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne (log-only)** | Próg `0xFFFFFFFF` — **nigdy nie kasuje** (log-only, `tamper_manager.c:46`); realny szybki glitch łapie uzbrojony SE 17 (poziom 4 reset). Słaby start kwarcu też ustawia te flagi. |
 | `EMU_TemperatureGet()` poza -10..+70 °C -> `TEMP_EXTREME` | **Aktywne** | Próg 12 (12 × 5 s = 60 s utrzymania), odpytywanie co 5 s. Dużo ostrzejsze niż specyfikacja układu -40..+125 °C; dongle w nagrzanym samochodzie lub w zimnym aucie kuriera może go wyzwolić. |
 | `tamper_manager_report_voltage_glitch()` (monitor baterii) | **Tylko API** | Nic jej nie wywołuje. |
 | `tamper_manager_report_emp()` | **Tylko API** | Nic jej nie wywołuje. Prawdziwy czujnik EMP to źródło SE 17 powyżej. |

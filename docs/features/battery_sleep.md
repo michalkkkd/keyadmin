@@ -15,8 +15,8 @@ System pracuje w trzech różnych trybach energetycznych Silicon Labs (Energy Mo
 
 | Tryb | Nazwa | Rdzeń CPU | Peryferia (EUSART0, DMA, zegary) | Pobór prądu | Czas wybudzenia | Opis |
 |:---|:---|:---|:---|:---:|:---:|:---|
-| **EM0** | **Aktywny** | ARM Cortex-M33 pracuje z częstotliwością 78 MHz | Wszystkie szybkie zegary (HFXO/DPLL), DMA, EUSART i sprzętowa kryptografia Vault aktywne | ~6–8 mA | 0 ns | Aktywne odszyfrowywanie, wykonywanie bezpiecznych algorytmów (RPC) i szyfrowanie odpowiedzi. |
-| **EM1** | **Aktywny bezczynny** | Wstrzymany przez `WFI` (Wait For Interrupt, czekanie na przerwanie) | **W 100% aktywne.** Oscylator wysokiej częstotliwości (HFXO), DMA i EUSART0 nasłuchują z prędkością 921 600 bodów | ~1,5–2,5 mA | ~38 ns (3 cykle CPU) | Mikrouśpienie między bajtami/pakietami UART. Zachowuje natychmiastową odpowiedź bez opóźnień. |
+| **EM0** | **Aktywny** | ARM Cortex-M33 ~39 MHz, taktowany bezpośrednio z HFXO (kryształ 39 MHz; DPLL nieużywany) | Wszystkie szybkie zegary (HFXO), DMA, EUSART i sprzętowa kryptografia Vault aktywne | ~6–8 mA | 0 ns | Aktywne odszyfrowywanie, wykonywanie bezpiecznych algorytmów (RPC) i szyfrowanie odpowiedzi. |
+| **EM1** | **Aktywny bezczynny** | Wstrzymany przez `WFI` (Wait For Interrupt, czekanie na przerwanie) | **W 100% aktywne.** Oscylator wysokiej częstotliwości (HFXO), DMA i EUSART0 nasłuchują z prędkością 921 600 bodów | ~1,5–2,5 mA | ~77 ns (3 cykle CPU przy 39 MHz) | Mikrouśpienie między bajtami/pakietami UART. Zachowuje natychmiastową odpowiedź bez opóźnień. |
 | **EM2/3** | **Głębokie uśpienie** | Wyłączony; zawartość RAM zachowana | Szybkie zegary i UART wyłączone. Aktywny zegar niskiej częstotliwości (**LFRCO** w EM2 dla SYSRTC, `security_rtc.c:57`; ULFRCO ~1 kHz dopiero przy krańcu EM3) i wybudzanie Wake-on-RX / GPIO | **~2–3 µA** (EM2) / ~1 µA (kraniec EM3) | ~10 µs | Tryb oszczędzania baterii o ultraniskim poborze energii, uruchamiany, gdy brakuje sygnału heartbeat z aplikacji hosta. |
 
 ---
@@ -33,7 +33,7 @@ Architektura opiera się na dwóch współdziałających mechanizmach:
 +-----------------------------------------------------------------------------------+
 | 1. STAN AKTYWNY (EM0 / EM1)                                                       |
 |    - Blokada utrzymywana: sl_power_manager_add_em_requirement(SL_POWER_MANAGER_EM1) |
-|    - Przerwanie GPIO na zboczu opadającym PA09 jest BEZWZGLĘDNIE WYŁĄCZONE,       |
+|    - Przerwanie GPIO na zboczu narastającym PA09 jest BEZWZGLĘDNIE WYŁĄCZONE,     |
 |      aby zapobiec burzy przerwań (ISR)                                            |
 |    - EUSART0 i DMA odbierają bajty z prędkością 921 600 bodów bez narzutu         |
 |    - Heartbeat odświeża inactivity_timer (odliczanie 4,5 s)                       |
@@ -53,16 +53,16 @@ Architektura opiera się na dwóch współdziałających mechanizmach:
 +-----------------------------------------------------------------------------------+
 | 3. GŁĘBOKIE UŚPIENIE (tryb EM2/3)                                                   |
 |    - Blokada zwolniona: sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1) |
-|    - Przerwanie GPIO na zboczu opadającym PA09 jest UZBROJONE                     |
-|      (sl_gpio_enable_interrupts)                                                  |
+|    - Przerwanie GPIO na zboczu narastającym PA09 jest UZBROJONE                   |
+|      (sl_gpio_enable_interrupts); RX jest ściągany do masy (pull-down)            |
 |    - MCU przechodzi w EM2/3 (pobór ~1 µA)                                           |
-|    - Pierwsze zbocze opadające na RX wywołuje rx_wakeup_callback, rozbraja ISR    |
+|    - Pierwsze zbocze narastające na RX wywołuje rx_wakeup_callback, rozbraja ISR  |
 |      GPIO, przywraca wymaganie EM1 i wybudza MCU do EM0                           |
 +-----------------------------------------------------------------------------------+
 ```
 
 ### 1. Protokół bezczynności i heartbeatu (odliczanie ping-pong)
-1. **Bramka pierwszego heartbeatu**: Po włączeniu zasilania i starcie `sleep_feature_enabled` jest inicjalizowane wartością `false`. Odliczanie timera uśpienia nie startuje, dopóki od hosta nie nadejdzie pierwszy prawidłowy `MSG_PING`. Dzięki temu MCU nie zasypia w oczekiwaniu na początkową konfigurację ani tuż po wgraniu firmware'u.
+1. **Bramka uśpienia**: `sleep_feature_enabled` startuje jako `true`; faktyczną bramką jest flaga `host_seen` oraz to, że `app_init` nie uruchamia `inactivity_timer`, dopóki nie nadejdzie pierwszy ruch od hosta. Dzięki temu MCU nie zasypia natychmiast w oczekiwaniu na początkową konfigurację — jednak po **60 s** bez żadnego bajtu hosta (`BOOT_SLEEP_GRACE_MS`, przypadek resetu na baterii) `boot_grace_timer_callback` i tak przełącza dongle w uśpienie. Gwarancja „nie zasypia bez hosta” jest więc ograniczona czasowo, nie bezwzględna.
 2. **Okresowy heartbeat hosta**: Aplikacja hosta na PC (`KeySec/keycomm/core/transport.py`) utrzymuje wątek w tle (`_heartbeat_loop`), który wysyła ramki `MSG_PING` co **3,0 sekundy**.
 3. **Odliczanie bezczynności**: Na MCU `trigger_led_timer()` restartuje `inactivity_timer` z **limitem czasu 4,5 sekundy** (`INACTIVITY_TIMEOUT_MS = 4500`).
 4. **Ostrzeżenie o utracie heartbeatu**: Jeśli upłyną 4,5 sekundy bez komunikacji:
@@ -71,7 +71,7 @@ Architektura opiera się na dwóch współdziałających mechanizmach:
 5. **Wejście w głębokie uśpienie EM2/3**: Jeśli po 3-sekundowym ostrzeżeniu nie nadejdzie żaden heartbeat (łącznie **7,5 sekundy** bezczynności):
    - `heartbeat_lost_timer_callback` gasi diodę LED.
    - Usuwa wymaganie zasilania EM1 (`sl_power_manager_remove_em_requirement(SL_POWER_MANAGER_EM1)`).
-   - Włącza zewnętrzne przerwanie GPIO na zboczu opadającym na pinie `PA09`.
+   - Włącza zewnętrzne przerwanie GPIO na zboczu narastającym na pinie `PA09` (w uśpieniu RX jest ściągany do masy).
    - Power Manager Silicon Labs przełącza urządzenie w **głębokie uśpienie EM2/3** (~1 µA).
 
 ### 2. Zapobieganie burzy przerwań i Wake-on-RX
@@ -80,7 +80,7 @@ Aby zagwarantować stabilność wysokoprzepustowej komunikacji UART przy 921 600
 * **Ścisła izolacja przerwań**:
   - W EM0 i EM1 zewnętrzne przerwanie GPIO na PA09 jest **bezwzględnie wyłączone** (`sl_gpio_disable_interrupts(1 << rx_wakeup_int_no)`).
   - Przerwanie GPIO jest włączane **wyłącznie** przy przejściu do EM2/3.
-  - Gdy PC wyśle bajt wybudzający (zbocze opadające na RX), wywoływany jest `rx_wakeup_callback`, który **natychmiast wyłącza przerwanie GPIO**, ponownie ustawia `SL_POWER_MANAGER_EM1` i zwraca `SL_POWER_MANAGER_WAKEUP`.
+  - Gdy PC wyśle bajt wybudzający (zbocze narastające na RX, który w uśpieniu jest ściągany do masy), wywoływany jest `rx_wakeup_callback`, który **natychmiast wyłącza przerwanie GPIO**, ponownie ustawia `SL_POWER_MANAGER_EM1` i zwraca `SL_POWER_MANAGER_WAKEUP`.
   - Wszystkie kolejne bajty danych są przetwarzane wyłącznie przez sprzętowy EUSART i DMA, bez żadnej ingerencji przerwań GPIO.
 
 ### 3. Wstrzymywanie i wznawianie heartbeatu po stronie PC
@@ -100,7 +100,7 @@ Podczas intensywnych benchmarków lub wysokoprzepustowych operacji wsadowych opr
 ### Scenariusz B: urządzenie podłączone ➔ start aplikacji na PC
 * **Stan początkowy:** Urządzenie jest podłączone do USB, ale znajduje się w głębokim uśpieniu EM2/3, ponieważ aplikacja na PC została wcześniej zamknięta (>7,5 s temu).
 * **Przebieg:** Użytkownik uruchamia aplikację. Warstwa transportowa otwiera COM10 i wysyła początkowy ping synchronizacyjny.
-* **Wynik:** Zbocze opadające wybudza EFR32MG24 do EM0. Normalna komunikacja zostaje natychmiast wznowiona.
+* **Wynik:** Zbocze narastające wybudza EFR32MG24 do EM0. Normalna komunikacja zostaje natychmiast wznowiona.
 
 ### Scenariusz C: normalna praca ➔ aplikacja kończy działanie lub ulega awarii
 * **Stan początkowy:** Urządzenie jest w stanie aktywnym (EM0/EM1) i normalnie się komunikuje.
