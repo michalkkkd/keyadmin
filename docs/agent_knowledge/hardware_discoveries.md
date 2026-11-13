@@ -6,9 +6,9 @@
   - Licznik zeruje się przy resecie, dlatego czas Unix trafia co 60 s do NVM3 (checkpoint), a po resecie zegar rusza od checkpointu + 150 s kary. Szczegóły: [time_license_mechanism.md](../security/time_license_mechanism.md).
   - Dawny model `boot_time + uptime` cofał zegar przy każdym resecie do daty provisioningu (licencja praktycznie nie wygasała). Nie wracać do niego.
 
-* **Błąd zamiany znaków LF na CRLF w SiLabs SDK:** Straciliśmy mnóstwo czasu na błędy CRC w pakietach TinyFrame. Okazało się, że domyślnie sl_iostream_usart w Silicon Labs SDK działa jak terminal tekstowy i po cichu zamienia wysyłany bajt `0x0A` (\n) na sekwencję `0x0D` 0x0A (\r\n). 
+* **Błąd zamiany znaków LF na CRLF w SiLabs SDK:** Straciliśmy mnóstwo czasu na błędy CRC w pakietach TinyFrame. Okazało się, że domyślnie sl_iostream_eusart w Silicon Labs SDK działa jak terminal tekstowy i po cichu zamienia wysyłany bajt `0x0A` (\n) na sekwencję `0x0D` 0x0A (\r\n). 
   - Dla strumieni binarnych, takich jak TinyFrame, to katastrofa (psuje bajty payloadu lub sumy kontrolne).
-  - Rozwiązanie: trzeba to wyłączyć w config/sl_iostream_usart_Io_Stream_USERT_config.h (ustawiając opcję ...CONVERT_BY_DEFAULT_LF_TO_CRLF na `0`).
+  - Rozwiązanie: trzeba to wyłączyć w config/sl_iostream_eusart_Io_Stream_USERT_config.h (ustawiając opcję ...CONVERT_BY_DEFAULT_LF_TO_CRLF na `0`).
 
 * **Diagnostyka pamięci i linker:** Zamiast wpisywać offsety na sztywno, do obliczania zużycia zasobów sprzętowych (Flash, RAM) w czasie rzeczywistym mapujemy zmienne systemowe eksportowane przez GNU Linker, takie jak __etext, __data_start__, __HeapBase, __HeapLimit (przez funkcję diagnostyczną MSG_MEM_INFO).
 

@@ -42,7 +42,7 @@ flowchart TB
         direction LR
         p1["dongle losuje klucz tożsamości"]
         p2["Root CA podpisuje go<br/>= certyfikat"]
-        p3["--lock: Command Key publiczny<br/>zapisany w OTP"]
+        p3["pieczętowanie: Command Key publiczny<br/>zapisany w OTP"]
     end
     subgraph P2["Każde połączenie z Compass"]
         direction LR
@@ -75,7 +75,7 @@ To samo w tabeli (co robi klucz w danym momencie):
 | Klucze jednorazowe ECDH | – | – | tworzone, dają wspólny sekret, kasowane | – | – |
 | Klucze sesyjne AES | – | – (tylko test w kroku 5) | tworzone, **szyfrują** rozmowę | – | – |
 | Command Key prywatny | tworzony | – | – | – | **podpisuje** token odblokowania (w pamięci, przy każdym unlocku) |
-| Command Key publiczny | tworzony, wkompilowany | **zapisany w OTP** (`--lock`) | – | – | SE nim **sprawdza** token |
+| Command Key publiczny | tworzony, wkompilowany | **zapisany w OTP** (pieczętowanie) | – | – | SE nim **sprawdza** token |
 | Klucz hosta prywatny | tworzony, wpisany w Compass (`XRouter._HOST_KEY`) | keyadmin **podpisuje** handshake (krok 5) | Compass **podpisuje** handshake | – | keyadmin **podpisuje** handshake |
 | Klucz hosta publiczny | tworzony, wkompilowany | – | dongle **sprawdza** podpis | – | dongle **sprawdza** podpis |
 | Tamper Log Key | tworzony, wkompilowany | – | – | **szyfruje** wpis | **odszyfrowuje** log (plik `.bin`) |
@@ -193,18 +193,18 @@ Po krokach 2, 3 i 4 firmware trzeba przebudować (`compile.bat`); po kroku 4 tak
 ## 4. Provisioning: `provision_dongle.py`
 
 ```
-python keyadmin/scripts/provision_dongle.py [dni] [użytkownicy] [--lock]
+python keyadmin/scripts/provision_dongle.py [dni] [użytkownicy] [--no-lock]
 ```
 
 | Krok | Co się dzieje | Jakie klucze |
 |---|---|---|
-| 0. kontrola | Same odczyty, nic nie jest zmieniane | Sprawdza, czy `root_ca_key.pem` pasuje do `keycomm/keys/root_ca_pub.pem`. Przy `--lock` sprawdza też, czy Command Key w firmware pasuje do pliku. |
+| 0. kontrola | Same odczyty, nic nie jest zmieniane | Sprawdza, czy `root_ca_key.pem` pasuje do `keycomm/keys/root_ca_pub.pem`. Przy pieczętowaniu (domyślnym) sprawdza też, czy Command Key w firmware pasuje do pliku. |
 | 1. kompilacja | `compile.bat` buduje dwa firmware: produkcyjny `keyfirmware.hex` i fabryczny `keyfirmware_prov.hex` | Wkompilowuje publiczny Command Key i Tamper Log Key. |
 | 2. firmware fabryczny | `set_factory_mode.bat` | Firmware fabryczny ma komendy admina (data, licencja, użytkownicy, wipe, tożsamość). Rozmowa jest **jawna**, bo dongle nie ma jeszcze certyfikatu, więc nie da się zestawić szyfrowanego połączenia. |
 | 3. sekrety | Patrz diagram niżej | **Dongle tworzy swój klucz tożsamości, a fabryka go podpisuje.** Potem zapisywane są: aktualny czas, liczba dni licencji i limit użytkowników. |
 | 4. firmware produkcyjny | `set_production_mode.bat` | Firmware produkcyjny nie ma komend admina. Pamięć NVM3 (klucz tożsamości, certyfikat, licencja) zostaje. |
 | 5. sprawdzenie | Pełne połączenie tak jak w Compass, sprawdzenie licencji, `alg1(15,27)=42`, próba wipe musi zostać odrzucona | Pierwsze prawdziwe użycie klucza tożsamości, certyfikatu, publicznego Root CA i klucza hosta (keyadmin podpisuje kopią z `host_key.pem`). Powstają pierwsze klucze sesyjne. |
-| 6. `--lock` (opcjonalnie) | Secure Debug Lock | **Publiczny Command Key trafia do OTP** (na zawsze), a port SWD zostaje zablokowany. |
+| 6. pieczętowanie (domyślnie; `--no-lock` pomija) | Secure Debug Lock + uzbrojenie OTP tamper | **Publiczny Command Key trafia do OTP** (na zawsze), port SWD zostaje zablokowany, a poziomy tamperów + secure boot OFF są wypalane w OTP. |
 
 ### Krok 3 dokładniej
 

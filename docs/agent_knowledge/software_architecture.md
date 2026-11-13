@@ -6,7 +6,7 @@ Aplikacja sterująca w Windows, wysyłająca polecenia. Utrzymuje połączenie s
 
 ## B. KeyFirmware (C na krzemie)
 **Główny plik:** `app.c` w IDE (Simplicity Studio).
-Firmware, który stale nasłuchuje na porcie VCOM (bez blokowania rdzenia) przy użyciu natywnego SDK (sl_iostream_getchar). Parsuje pełne linie i wywołuje procedury RPC. Odpowiedź odsyła błyskawiczną funkcją sl_iostream_write(), dodając mikrosekundowe opóźnienie blokujące (sl_sleeptimer_delay_millisecond), aby dane fizycznie zdążyły opuścić port przed kolejnym tickiem stosu Bluetooth.
+Firmware, który stale nasłuchuje na porcie VCOM (bez blokowania rdzenia) przy użyciu natywnego SDK (sl_iostream_getchar). Parsuje pełne linie i wywołuje procedury RPC. Odpowiedź odsyła błyskawiczną funkcją sl_iostream_write(), dodając krótkie opóźnienie blokujące (sl_sleeptimer_delay_millisecond), aby dane fizycznie zdążyły opuścić port przed kolejnym cyklem pętli głównej.
 
 ### INSTRUKCJE KOMPILACJI DLA AGENTA
 1. Kompilacja: cd cmake_gcc && cmake --build --preset default_config

@@ -65,7 +65,7 @@ There is no key, cipher, check code, threshold or meaning in it. Everything that
 * `secure_debug/diag_stream_decoder.py`, `sealed_record_decoder.py`, `diag_host_evaluator.py`, `diag_evaluator.py`, `diag_support_report.py`;
 * the meanings in `keyadmin/core/constants.py`.
 
-Production firmware answers no plaintext diagnostics. `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`). PC5/PC6 tamper events send no `SECURITY ALERT` log over USB in production (`tamper_external.c`). The event is still written to the encrypted tamper log, and the LED still lights for 1 s.
+Production firmware answers no plaintext diagnostics. `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`). PC5/PC0 tamper events send no `SECURITY ALERT` log over USB in production (`tamper_external.c`). The event is still written to the encrypted tamper log. (No LED is lit on a tamper event — `tamper_manager_is_led_active()` returns `false`.)
 
 ## Check codes (internal, shown only after deciphering)
 
@@ -92,7 +92,7 @@ Checks judged by keyadmin from the decrypted dongle record (and `AP_1` from the 
 | `TA_1` | Tamper events | `WARN_1` events since boot, `WARN_2` entries in the persistent tamper log |
 | `RS_2` | Abnormal resets since provisioning | `FAIL_1` SE tamper, `WARN_1` brown-out, `WARN_2` watchdog, `WARN_3` lockup |
 | `SE_1` | Secure session problems since boot | `WARN_1` handshakes rejected, `WARN_2` requests that did not decrypt |
-| `LK_2` | Corrupted USB frames since boot | `WARN_1` frames dropped for a bad TinyFrame checksum. Fast chunk bursts (large Safe Space transfers, retried by the host) can cause a few; wake-ups from EM3 do not |
+| `LK_2` | Corrupted USB frames since boot | `WARN_1` frames dropped for a bad TinyFrame checksum. Fast chunk bursts (large Safe Space transfers, retried by the host) can cause a few; wake-ups from EM2 do not |
 | `ID_1` | Identity and certificate | `FAIL_1` no certificate, `FAIL_2` no identity key (not provisioned / wiped) |
 | `DB_1` | Debug port (SWD) lock | `WARN_1` lock not applied, `WARN_2` lock applied but unlocked until the next reset |
 | `ER_1` | Failed dongle commands | `WARN_1` at least one of the last 4 secure commands failed (listed with time and error) |

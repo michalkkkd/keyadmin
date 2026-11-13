@@ -8,7 +8,7 @@ Główna aplikacja (Compass) działa w modelu zero-trust i jest wzmocniona komer
 * **Nuitka VM:** Wirtualizuje przepływ wykonania i szyfruje krytyczne stałe.
 * **Themida:** Opakowuje finalny plik wykonywalny, zapewniając bardzo silną ochronę Anti-Dump, Anti-Debug i Anti-VM, a także wirtualizację kodu.
 
-**KRYTYCZNA UWAGA DOTYCZĄCA WDROŻENIA:** Dzięki temu komercyjnemu zestawowi zabezpieczeń typowe problemy pakowania aplikacji Pythona (np. znane podatności Nuitka --onefile związane z rozpakowywaniem do folderu %TEMP%) **NIE MAJĄ ZASTOSOWANIA**. Wykonanie jest silnie zwirtualizowane i chronione przed monitorowaniem rozpakowywania plików na dysk.
+**UWAGA WDROŻENIOWA:** Chroniony build produkcyjny ([`build-nuitka-comm-themida.ps1`](../../../Compass/build-nuitka-comm-themida.ps1):210) używa **`--mode=standalone`** — **dystrybucja folderowa** (`run_compass.dist` → `C:\Compilation\exe\run_compass.exe`), **NIE** `--onefile`. Dlatego klasyczne pułapki `--onefile` (rozpakowanie >1 GB do `%TEMP%\onefile_XXXXX`) **nie dotyczą** builda produkcyjnego — występują wyłącznie w deweloperskim buildzie `--onefile` (`build.ps1`). Zastrzeżone silniki C++ (`compass_models.dll`, `safe_space_calc.dll`, `Sim_Rapid.dll`) są bundlowane do chronionej VM Themidy (EXTRACT_NEVER), a reszta folderu `.dist` jest opancerzona Themidą.
 
 ## 2. Globalna obsługa błędów i telemetria
 * **CompassLogger:** Aplikacja ma globalny logger typu singleton, który podmienia (monkey-patching) sys.excepthook oraz log_exception z Tornado. 

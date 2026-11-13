@@ -2,6 +2,8 @@
 
 Ten plik zbiera ustalenia z rozmów o tym, jak dongle (Seeed XIAO MG24, EFR32MG24B220F1536IM48) śpi na baterii, czy wtedy wykrywa otwarcie obudowy i jak liczy czas licencji. Służy do kontynuowania tematu z innym AI. Stan: repozytoria KeyFirmware i KeySec z 2026-11-04 wieczorem. **Nic nie jest zacommitowane. Najnowszy firmware jest zbudowany, ale nie wgrany na dongle.**
 
+> **BANNER HISTORYCZNY (snapshot 2026-11-04 — część ustaleń jest już wdrożona w kodzie, stan 2026-11-13):** (a) drugi pin tamper **jest już PC0** w firmware (`tamper_external.c` `TAMPER2_PIN=0`) — „Błąd: firmware pilnuje PC6" niżej dotyczy stanu sprzed poprawki. (b) Flaga `KEYFIRMWARE_TAMPER_LIVE_WIPE` została **usunięta** — wipe zawsze jest pełny (`sl_se_erase_device`). (c) Otwarcie obudowy w uśpieniu **jest** wykrywane: odczyt impulsowy `sl_sleeptimer` co 1 s działa w EM2. (d) Propozycja „SYSRTC na LFXO" **nie została przyjęta** — stan: LFRCO. Treść poniżej zostaje jako zapis debaty.
+
 ## 0. Podsumowanie dla kolejnego AI (czytaj najpierw)
 
 ### Decyzje użytkownika (nie podważać)
@@ -116,10 +118,10 @@ Szacunki baterii: prąd MCU + płytka ok. 1,7 µA (Seeed zmierzył 1,95 µA w EM
 1. Użytkownik wybiera wariant z punktu 5.
 2. Wgrać obecny firmware produkcyjny (nie zmienia startu licencji) i sprawdzić: handshake, klucze PSA (Bluetooth usunięty), budzenie z EM2 heartbeatem, test baterii 30 min bez USB i odczyt „Energy modes” w DIAG (oczekiwane ok. 99 % EM2).
 3. Antitamper: drugi pin z PC6 na PC0; oba jako EM4WU (`sl_gpio_configure_wakeup_em4_interrupt()`, `sl_gpio.h:387`), kierunek „obwód przerwany”; odczyt impulsowy; odczyt stanu przy starcie.
-4. LFXO: `SL_CLOCK_MANAGER_LFXO_EN 1`, CTUNE 44, SYSRTC na LFXO, zmiana kontroli źródła w `security_rtc.c:57`.
+4. LFXO: `SL_CLOCK_MANAGER_LFXO_EN 1`, CTUNE 44, SYSRTC na LFXO, zmiana kontroli źródła w `security_rtc.c:57`. **(NIEPRZYJĘTE — stan: SYSRTC na LFRCO, decyzja „LFRCO precision" 2026-11-10; `security_rtc.c:57` sprawdza `CLKSEL_LFRCO`.)**
 5. Poprawki poboru z punktu 6.
 6. Korekta zegara licencji z czasu PC, tylko do przodu.
-7. Test na donglu: obudowa zamknięta, Compass odłączony (dongle śpi), zerwać drucik: oczekiwany wipe; sprawdzić wpis w tamper logu (`KeySec/temp/userdata_dump.py`); ponowny provisioning (`provision_dongle.py 365 3 --skip-compile`, bez `--lock`, start licencji zostaje bez odpowiedzi „TAK, NADPISZ”).
+7. Test na donglu: obudowa zamknięta, Compass odłączony (dongle śpi), zerwać drucik: oczekiwany wipe; sprawdzić wpis w tamper logu (`KeySec/temp/userdata_dump.py`); ponowny provisioning (`provision_dongle.py 365 3 --skip-compile --no-lock`, start licencji zostaje bez odpowiedzi „TAK, NADPISZ”).
 
 ## 9. Pliki
 

@@ -3,6 +3,8 @@
 ## 1. Przegląd
 Aplikacja Compass działa jako serwer WWW oparty na Tornado. Ponieważ wielu użytkowników może łączyć się przez sesje przeglądarki, system musi twardo ograniczać maksymalną liczbę *jednocześnie aktywnych użytkowników*. Użytkownik jest uznawany za „aktywnego” tylko wtedy, gdy korzystał z aplikacji w ciągu ostatnich **10 minut** (600 sekund).
 
+> **Stan wdrożony (2026-11-13):** limit egzekwowany jest **tokenami VRX** (firmware `nsc_generate_vrx_token` / `nsc_verify_vrx_token`, komenda `MSG_VRX`), a nie wariantami projektowymi opisanymi niżej. Nazwy `MSG_COMPASS_ALG1`, `MSG_REQUEST_SESSION`, `struct ActiveUser` to **historyczny design** — nie odzwierciedlają kodu. Sekcje poniżej zostają jako kontekst decyzji projektowej.
+
 ## 2. Zbieranie danych (aplikacja Compass)
 Aby egzekwować tę regułę, backend Compass (przez SessionManager i session_store.json) musi śledzić określone dane telemetryczne dla każdego podłączonego użytkownika:
 * **Token sesji / ID użytkownika:** Unikalny identyfikator użytkownika (np. hash SHA-256 jego adresu e-mail lub odcisku przeglądarki - browser fingerprint).

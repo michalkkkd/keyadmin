@@ -7,8 +7,8 @@ Mikrokontroler EFR32MG24 z Secure Vault High ma rozbudowany sprzętowy moduł an
 Moduł anti-tamper monitoruje szereg sygnałów sprzętowych i programowych. Zapewnia szybkie wykrywanie zarówno zewnętrznej, fizycznej ingerencji, jak i wewnętrznych ataków logicznych lub środowiskowych:
 
 ### Zabezpieczenia wewnętrzne:
-1. **Glitching napięcia:** wykrywa nagłe skoki lub spadki napięcia zasilania (`VGLITCHFALLING`, `VGLITCHRISING`), często używane do pomijania instrukcji lub obchodzenia kontroli bezpieczeństwa.
-2. **Glitching cyfrowy (`DGLITCH`):** wykrywa zakłócenia na poziomie logiki wewnątrz układu.
+1. **Glitching napięcia (`SL_SE_TAMPER_ATAMPDET_SUPGD`, sygnał 18):** wykrywa nagłe skoki lub spadki napięcia zasilania, często używane do pomijania instrukcji lub obchodzenia kontroli bezpieczeństwa.
+2. **Glitching cyfrowy / impuls EM (`SL_SE_TAMPER_ATAMPDET_EMPGD`, sygnał 17):** wykrywa zakłócenia na poziomie logiki wewnątrz układu. (Nazwy `VGLITCHFALLING/VGLITCHRISING/DGLITCH` istnieją tylko w EFR32xG21 i nie kompilują się dla MG24.)
 3. **Skrajne temperatury:** wykrywa wymuszone nagrzewanie lub zamrażanie układu, stosowane do wywoływania błędów lub odczytu zawartości SRAM.
 4. **Impulsy elektromagnetyczne (EMP):** wykrywa silne pola magnetyczne lub promieniowanie, często używane w atakach typu fault injection (wstrzykiwanie błędów).
 5. **Ingerencja w podsystem bezpieczeństwa:** wykrywa ataki logiczne, takie jak nieudane próby uwierzytelnienia, błędy Secure Boot (RTSL) i nieautoryzowany dostęp debug.
@@ -18,14 +18,14 @@ Urządzenie ma do 8 zewnętrznych, konfigurowalnych źródeł tamper (albo obsł
 - **Otwarcia obudowy / ingerencji w obudowę:** fizyczne otwarcie obudowy urządzenia.
 - **Przecięcia siatki/przewodu:** przecięcie zabezpieczającej pętli przewodu lub przerwanie obwodu mikroprzełącznika wokół PCB.
 
-> **Uwaga sprzętowa (EFR32MG24 a ETAMPDET):** Sprzętowy moduł peryferyjny `ETAMPDET` (External Tamper Detect z generowaniem pseudolosowej sekwencji bitów PRBS przez LFSR) jest dostępny tylko w EFR32xG25, EFR32xG27, EFR32xG29 i układach Series 3. EFR32MG24 (Seeed XIAO MG24) NIE ma modułu ETAMPDET; zewnętrzna ochrona fizyczna jest zrealizowana przez zewnętrzne przerwania GPIO z rezystorami pull-up i cyfrowym filtrowaniem glitchy, kierowane bezpośrednio do `TamperManager` (`tamper_manager_detected()`).
+> **Uwaga sprzętowa (EFR32MG24 a ETAMPDET):** Sprzętowy moduł peryferyjny `ETAMPDET` (External Tamper Detect z generowaniem pseudolosowej sekwencji bitów PRBS przez LFSR) jest dostępny tylko w EFR32xG25, EFR32xG29 (Series 2 Config 5/9) i układach Series 3. EFR32MG24 (Seeed XIAO MG24) NIE ma modułu ETAMPDET; zewnętrzna ochrona fizyczna jest zrealizowana przez zewnętrzne przerwania GPIO z rezystorami pull-up i cyfrowym filtrowaniem glitchy, kierowane bezpośrednio do `TamperManager` (`tamper_manager_detected()`).
 
 ## Wymagania dotyczące fizycznej implementacji
 
 Aby korzystać z zewnętrznego wykrywania tamper na EFR32MG24:
-1. **Przełącznik tamper lub pętla przewodu:** fizyczny mikroprzełącznik (dla otwarcia obudowy) lub pętla przewodu musi być podłączona między wyznaczonymi pinami GPIO tamper (PC5 / PC6 w XIAO MG24) a masą (GND).
+1. **Przełącznik tamper lub pętla przewodu:** fizyczny mikroprzełącznik (dla otwarcia obudowy) lub pętla przewodu musi być podłączona między wyznaczonymi pinami GPIO tamper (PC5 / PC0 w XIAO MG24) a masą (GND).
 2. **Pull-up i filtr glitchy:** piny są skonfigurowane w trybie `SL_GPIO_MODE_INPUT_PULL_FILTER`. Gdy obudowa jest zamknięta, obwód ściąga pin do GND (logiczne 0).
-3. Jeśli pętla zostanie przecięta, przewód odłączony lub obudowa otwarta, wewnętrzny rezystor pull-up natychmiast podciąga linię do VCC (logiczne 1), co wyzwala przerwanie na zboczu narastającym i powiadamia `TamperManager`.
+3. Jeśli pętla zostanie przecięta, przewód odłączony lub obudowa otwarta, wewnętrzny rezystor pull-up natychmiast podciąga linię do VCC (logiczne 1), co firmware wykrywa **odpytywaniem impulsowym co 1 s** (`sl_sleeptimer`; przerwania GPIO portu C **nie** budzą z EM2) i powiadamia `TamperManager`.
 
 ## Przykłady kodu
 
@@ -45,17 +45,17 @@ void configure_secure_engine_tamper(sl_se_command_context_t *cmd_ctx)
 {
     sl_se_otp_init_t otp_settings_init = SL_SE_OTP_INIT_DEFAULT;  // zawiera też ustawienia secure boot!
 
-    // Glitche mogą mieć fałszywe aktywacje. Zamiast od razu kasować OTP,
-    // kierujemy je do filtra. Jeśli w oknie czasowym wystąpi zbyt wiele glitchy,
-    // filtr wyzwala główną reakcję.
-    otp_settings_init.tamper_levels[SL_SE_TAMPER_SIGNAL_FILTER_COUNTER] = SL_SE_TAMPER_LEVEL_PERMANENTLY_ERASE_OTP;
+    // Glitche mogą mieć fałszywe aktywacje. Zamiast reagować od razu, kierujemy je do
+    // wspólnego licznika filtra; dopiero seria glitchy w oknie czasowym wyzwala reakcję
+    // licznika filtra — u nas RESET (odwracalny). NIGDY nie ustawiamy poziomu 7 (erase-OTP = brick).
+    otp_settings_init.tamper_levels[SL_SE_TAMPER_SIGNAL_FILTER_COUNTER] = SL_SE_TAMPER_LEVEL_RESET;
 
     // Skieruj detektory glitchy do filtra
     otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_SUPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 18: glitch zasilania
-    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_EMPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 17: glitch cyfrowy / EMP
+    otp_settings_init.tamper_levels[SL_SE_TAMPER_ATAMPDET_EMPGD] = SL_SE_TAMPER_LEVEL_FILTER;  // 17: glitch EM
 
-    // Konfiguracja filtra: wyzwól, jeśli w ciągu 1 minuty wystąpią 4 incydenty
-    otp_settings_init.tamper_filter_period = SL_SE_TAMPER_FILTER_PERIOD_1MIN;
+    // Konfiguracja filtra: wyzwól po serii (okno ~33 s, próg 4 incydenty)
+    otp_settings_init.tamper_filter_period = SL_SE_TAMPER_FILTER_PERIOD_33S;
     otp_settings_init.tamper_filter_threshold = SL_SE_TAMPER_FILTER_THRESHOLD_4;
 
     // Zapisz ustawienia do OTP (OPERACJA JEDNORAZOWA, łącznie z ustawieniami secure boot!)
@@ -106,7 +106,7 @@ Kod: `KeyFirmware/src/core/tamper_manager.c` (świat Secure), punkty wejścia pr
 
 Każdy detektor kończy się w jednej funkcji, `tamper_manager_detected(type, metadata)`, która działa w **świecie Secure**. Zwiększa ona licznik danego typu, a gdy licznik osiągnie próg dla tego typu, wywołuje `tamper_manager_trigger_wipe()` (raz na uruchomienie).
 
-Progi pochodzą z tablicy `tamper_thresholds[]` w [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c#L34-L45). Poniżej master table z planem po ustaleniach **2026-11-12** (obejmuje warstwę software oraz planowaną warstwę Secure Engine / OTP):
+Progi pochodzą z tablicy `tamper_thresholds[]` w [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c#L34-L45). Poniżej master table po ustaleniach **2026-11-12** (obejmuje warstwę software oraz **wdrożoną** warstwę Secure Engine / OTP; zob. też „Uzbrajane poziomy OTP" niżej):
 
 | # | Detektor | Warstwa | OTP | Kiedy licznik rośnie | Licznik | Log? | Stary próg | **Nowy próg** | Wipe? |
 |:--:|---|:--:|:--:|---|---|:--:|:--:|:--:|:--:|
@@ -118,9 +118,10 @@ Progi pochodzą z tablicy `tamper_thresholds[]` w [`tamper_manager.c`](../../../
 | 6 | Temperatura (−10/+70) | soft | — | odczyt poza zakresem (co 5 s) | RAM / per-cykl | TAK | 3 | **12** (=1 min) | TAK, po 12 |
 | 7 | Voltage (BOD) | soft | — | flaga brown-out (ciągle) | RAM / per-cykl | TAK | 2 | **—** | **NIE** (tylko log) |
 | 8 | Digital (HFXO) | soft | — | flaga błędu kwarcu (ciągle) | RAM / per-cykl | TAK | 2 | **—** | **NIE** (tylko log) |
-| 9 | SE 17 EMPGD (glitch EM) | SE | **4 reset** | sprzęt SE → reset | NVM3 / persistent | TAK (na reboot) | — (0) | **50 resetów** | TAK, po 50 resetach |
-| 10 | SE 18 SUPGD (glitch napięcia) | SE | **4 reset** | sprzęt SE → reset | NVM3 / persistent | TAK (na reboot) | — (0) | **50 resetów** | TAK, po 50 resetach |
-| 11 | SE 10/11 Mailbox/DCI (brute-force unlock) | SE | **1** | zła komenda SE | NVM3 / persistent | TAK | — (0) | **10** | TAK, po 10 |
+| 9 | SE 17 EMPGD (glitch EM) | SE | **2 filtr** | filtr → licznik → reset | NVM3 / persistent | nie per-szpilka | — (0) | **50 resetów** | TAK, po 50 resetach |
+| 10 | SE 18 SUPGD (glitch napięcia) | SE | **2 filtr** | filtr → licznik → reset | NVM3 / persistent | nie per-szpilka | — (0) | **50 resetów** | TAK, po 50 resetach |
+| 11 | SE 10/11 Mailbox/DCI (brute-force unlock) | SE | **2 filtr** | filtr → licznik → reset; logowane | NVM3 / persistent | TAK | — (0) | **50 resetów** | TAK, po 50 resetach |
+| — | SE licznik filtra (`FILTER_COUNTER`, agregat 9/10/11) | SE | **4 reset** | seria w oknie ~33 s (próg 4) | NVM3 / persistent | TAK (na reboot) | — | **50 resetów** | TAK, po 50 resetach |
 | 12 | SE 15 TRNG (brak entropii) | SE | **1** | monitor TRNG | — | TAK | — (0) | **—** | **NIE** (tylko log) |
 | 13 | SE 22 temp / 23–24 DPLL | SE | **0 pomiń** | — | — | — | — | — | NIE |
 | — | **erase OTP (poziom 7)** | SE | **NIGDY** | — | — | — | — | — | — |
@@ -138,7 +139,7 @@ Jak to czytać:
 
 * **Nic, co loguje świat Secure, nie trafia na USB.** W obrazie Secure `send_log()` jest zaślepką (`sec_main.c`), a `tamper_manager_init(NULL)` pozostawia `active_tf` puste. Linia `SECURITY ALERT` dla każdego zdarzenia i końcowa linia `CRITICAL: SELF-DESTRUCT` są budowane, ale odrzucane.
 * Co host faktycznie widzi:
-  * PC5 / PC6 events: in the factory provisioning firmware `tamper_external.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. In both builds the LED lights for 1 s.
+  * PC5 / PC0 events: in the factory provisioning firmware `tamper_external.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. (No LED is lit on a tamper event — `tamper_manager_is_led_active()` returns `false`.)
   * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`). Token wydany przez dongle, ale już zamknięty, dostaje `ERR: VRX token expired` i **nie** jest zdarzeniem tamper ([compass_security_mechanisms.md, 7.1 pkt 6](compass_security_mechanisms.md#71-architektura-zabezpieczenia-i-zasady-ochrony)).
   * `MSG_SYS_HEALTH` (`0x10`, factory provisioning firmware only): `TamperEvents:<total>, Temp:<t>, TamperLog:<entries in the persistent log>`.
   * Production firmware: the tamper counters and the tamper log page reach the host only inside the DIAG stream that the dongle encrypts with the Tamper Log Key ([diagnostics.md](diagnostics.md)), readable by KeySec admin only.
@@ -176,16 +177,16 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 
 | Źródło SE | Co wykrywa | Domyślna reakcja (bez konfiguracji OTP) | Status | Co jest potrzebne do włączenia |
 |---|---|---|---|---|
-| 2, 4, 5, 7, 8, 12, 14, 16, 19 (watchdog SE, ECC2 RAM SE, hard fault SE, asercja SE, secure boot firmware'u SE, odczyt OTP, autotest, secure lock, ICACHE SE) | Błędy wewnątrz samego Secure Engine | 4 = Reset | **Aktywne** (wbudowane, nie można obniżyć) | Nic. Od tej zmiany reset spowodowany przez dowolne źródło tamper SE jest zapisywany do trwałego logu przy następnym uruchomieniu (`EMU_RSTCAUSE_SETAMPER`). |
+| 2, 4, 5, 7, 8, 12, 14, 16, 19 (watchdog SE, ECC2 RAM SE, hard fault SE, asercja SE, secure boot firmware'u SE, **integralność flash** (FLASH_INTEGRITY_ERROR), autotest, secure lock, ICACHE SE) | Błędy wewnątrz samego Secure Engine | 4 = Reset | **Aktywne** (wbudowane, nie można obniżyć) | Nic. Od tej zmiany reset spowodowany przez dowolne źródło tamper SE jest zapisywany do trwałego logu przy następnym uruchomieniu (`EMU_RSTCAUSE_SETAMPER`). |
 | 21 BOD | Brown-out (spadek) napięcia zasilania | 4 = Reset | **Aktywne** (tylko reset) | Nic. To samo logowanie przyczyny resetu co wyżej. |
-| 17 Glitch cyfrowy (`SL_SE_TAMPER_ATAMPDET_EMPGD`, „EMP glitch detector”) | Fault injection impulsem EM / glitchem zegara / logiki. **To jedyny prawdziwy czujnik EMP w układzie.** | 0 = Ignore | **Możliwe**, nieskonfigurowane. Nasz `TAMPER_TYPE_EMP` nie ma źródła. | Poziom OTP 1 (przerwanie), aby logować przez `SETAMPERHOST_IRQHandler`, albo 2 (filtr) / 4 (reset). Domyślnie działa tylko wtedy, gdy SE wykonuje komendę; stałe uzbrojenie wymaga flagi OTP „digital glitch always on” lub `sl_se_enter_active_mode()` (większy pobór prądu). |
-| 18 Glitch napięcia (`SL_SE_TAMPER_ATAMPDET_SUPGD`) | Szybkie zakłócenia zasilania (fault injection) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 / 2 / 4. |
-| 22 Czujnik temperatury | Temperatura struktury układu w granicach 5 °C od limitów urządzenia (MG24: -40..+125 °C) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 / 2 / 4. Dużo rozsądniejsze limity niż nasze programowe -10..+70 °C. |
-| 23 / 24 DPLL lock fail low / high | Manipulacja zegarem przez DPLL | 0 = Ignore | **Możliwe**, mała wartość (nasz firmware nie polega na DPLL) | Poziom OTP. |
-| 25-31 PRS0-PRS6 | Dowolny sygnał wewnątrz układu przekierowany przez PRS, np. **piny tamper PC5 / PC6** | 0 = Ignore | **Możliwe**, nieskonfigurowane | Przekierować GPIO przez PRS do odbiornika tamper SE + poziom OTP 4 (reset) lub 7. SE reaguje wtedy nawet przy skompromitowanym firmware CPU. |
-| ETAMPDET (zewnętrzne wykrywanie tamper z siatką LFSR) | Aktywna siatka z pseudolosowym wzorcem | nie dotyczy | **N/A**: tylko w Series 2 config 5 / 9 (xG25, xG29...) i Series 3 | Zamiast tego użyć PC5 / PC6 (+ PRS). |
-| 10 / 11 Autoryzacja Mailbox / DCI | Błędne tokeny debug-unlock, próby eksportu nieeksportowalnych kluczy | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 2 (filtr) spowolniłby brute force na odblokowanie Secure Debug. |
-| 15 Monitor TRNG | Brak entropii (TRNG zaatakowany lub uszkodzony) | 0 = Ignore | **Możliwe**, nieskonfigurowane | Poziom OTP 1 lub 4. |
+| 17 EMPGD (`SL_SE_TAMPER_ATAMPDET_EMPGD`, detektor glitcha elektromagnetycznego) | Fault injection impulsem EM | 0 = Ignore | **Uzbrojone: 2 = Filtr** → licznik filtra → reset. Uwaga: detektor działa tylko gdy SE wykonuje komendę (flaga „always on" = 0, dla oszczędzania baterii). | — (uzbrojone w `sec_tamper_otp.c`) |
+| 18 SUPGD (`SL_SE_TAMPER_ATAMPDET_SUPGD`) | Szybkie zakłócenia zasilania (fault injection) | 0 = Ignore | **Uzbrojone: 2 = Filtr** → licznik filtra → reset | — |
+| 22 Czujnik temperatury | Temperatura struktury w granicach ~5 °C od limitów układu (MG24) | 0 = Ignore | **Ignore (celowo)**: temperaturę pilnuje software (−10/+70, **celowe** limity serwerowe/biurowe); czujnik SE odpala dopiero ~±ekstremum, szerzej niż nasz próg | — |
+| 23 / 24 DPLL lock fail low / high | Manipulacja zegarem (DPLL) | 0 = Ignore | **Ignore (celowo)**: nie używamy DPLL (zegar HFXO + LFRCO), więc lock-fail nigdy nie odpali — uzbrojenie byłoby martwym wpisem | — |
+| 25-31 PRS0-PRS6 | Sygnał przekierowany przez PRS, np. piny PC5 / PC0 | 0 = Ignore | **Ignore (celowo)**: pominięte; Secure Debug Lock pokrywa podmieniony/zatrzymany firmware | — |
+| ETAMPDET (zewnętrzne wykrywanie tamper z siatką LFSR) | Aktywna siatka z pseudolosowym wzorcem | nie dotyczy | **N/A**: tylko w Series 2 config 5 / 9 (xG25, xG29...) i Series 3 | Zamiast tego użyć PC5 / PC0 (+ PRS). |
+| 10 / 11 Autoryzacja Mailbox / DCI | Błędne tokeny debug-unlock, próby eksportu nieeksportowalnych kluczy | 0 = Ignore | **Uzbrojone: 2 = Filtr** → reset po serii (rate-limit brute force); logowane (filtr kumulatywny z interruptem) | — |
+| 15 Monitor TRNG | Brak entropii (TRNG zaatakowany lub uszkodzony) | 0 = Ignore | **Uzbrojone: 1 = Interrupt** (tylko log, bez eskalacji do resetu) | — |
 | 9 User secure boot | Niepoprawny podpis naszego firmware'u | 0 = Ignore | **N/A do czasu włączenia secure boot** | Secure boot (RTSL) nie jest włączony (`compass_security_mechanisms.md` §10). |
 | Poziom reakcji 7 „Erase OTP” | Trwale brickuje układ (klucze OTP znikają, układ już nigdy się nie uruchomi) | nie dotyczy | Nieużywany | Tylko dla źródeł z zerowym odsetkiem fałszywych alarmów. Niezalecany dla nas. |
 
@@ -193,12 +194,12 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 
 > **Decyzja zespołu (2026-11-13): Secure Boot = OFF, świadomie i na stałe.** Nie chcemy secure boota (RTSL) — jest redundantny z zawsze włączonym Secure Debug Lockiem wobec zagrożenia „wgraj złe firmware” (atakujący i tak nie otworzy SWD, żeby je wgrać). `sl_se_init_otp()` zamraża tę decyzję na zawsze w tym samym zapisie co poziomy tamperów, dlatego ustawiamy `enable_secure_boot = false` i mamy tego świadomość. Szczegóły: [compass_security_mechanisms.md §10](compass_security_mechanisms.md).
 
-**Stan: zaimplementowane.** Warstwę SE/OTP uzbraja firmware ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) wołany przez `provision_dongle --lock` (bramka `MSG_TAMPER_OTP_ARM` 0x65, status `MSG_TAMPER_OTP_STATUS` 0x64). Sam wpal OTP na fizycznym urządzeniu pozostaje nieodwracalnym krokiem produkcyjnym (robi się raz, w `--lock`).
+**Stan: zaimplementowane.** Warstwę SE/OTP uzbraja firmware ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) w kroku pieczętowania `provision_dongle` (**domyślnym**; `--no-lock` pomija) — bramka `MSG_TAMPER_OTP_ARM` 0x65, status `MSG_TAMPER_OTP_STATUS` 0x64. Sam wpal OTP na fizycznym urządzeniu pozostaje nieodwracalnym krokiem produkcyjnym (robi się raz, przy pieczętowaniu).
 
-**Dwie warstwy.** (a) Software (dół master table) już działa, bez OTP — czyta zwykłe peryferia (GPIO, EMU, HFXO) i robi nasz wipe. (b) Sygnały SE (góra) uzbraja jednorazowy wpis poziomu w OTP (w kodzie gotowe, wypalane w `--lock`).
+**Dwie warstwy.** (a) Software (dół master table) już działa, bez OTP — czyta zwykłe peryferia (GPIO, EMU, HFXO) i robi nasz wipe. (b) Sygnały SE (góra) uzbraja jednorazowy wpis poziomu w OTP (w kodzie gotowe, wypalane w kroku pieczętowania, domyślnym).
 
 **Co jest w OTP i co wypala co.** OTP ma osobne „szufladki”, zapisywane różnymi operacjami:
-* `sl_se_init_otp_key(...)` — publiczny **Command Key** (Secure Debug). **Już wypalone** na donglach z `--lock`.
+* `sl_se_init_otp_key(...)` — publiczny **Command Key** (Secure Debug). **Już wypalone** na zapieczętowanych donglach.
 * `sl_se_init_otp(...)` — blok **secure boot + poziomy tamperów** (`tamper_levels[]`), oba naraz, **raz i nieodwracalnie**. Nasza konfiguracja: secure boot OFF + poziomy z tabeli niżej. Przy okazji na zawsze zamraża decyzję o secure boot (zapis z secure boot OFF = już nigdy go nie włączysz na tym układzie).
 
 **W OTP idzie tylko liczba (poziom), nie kod.** Poziomy: `0` ignore · `1` interrupt (SE podnosi `SETAMPERHOST`, resztę robi nasz handler, reflashowalny) · `4` reset (autonomiczny, sprzętowy) · `7` erase-OTP (brick — **nigdy**). „Co się wykona” przy poziomie 1 to zwykły firmware (`SETAMPERHOST_IRQHandler` → `tamper_manager_detected`), zmienialny reflashem; w OTP nie ma nazw funkcji ani adresów.
@@ -233,9 +234,9 @@ Filtr: okno `SL_SE_TAMPER_FILTER_PERIOD_33S`, próg `SL_SE_TAMPER_FILTER_THRESHO
 
 **Numeracja sygnałów SE (MG24 = Series 2 Config 4, `sl_se_manager_defines.h`):** 17 EMPGD, 18 SUPGD, 21 BOD, 22 temp, 23/24 DPLL, 10/11 Mailbox/DCI, 15 TRNG. Numery **0, 3, 6, 13 to `RESERVED`** (puste, nie do użycia).
 
-> **Uwaga wdrożeniowa:** uzbrojenie sygnałów SE to **nieodwracalny** `sl_se_init_otp()`, który zamraża też secure boot (OFF). Robimy to **wyłącznie w kroku provisioningu produkcyjnego** (`provision_dongle --lock`), **nigdy** automatycznie przy starcie ani na płytkach deweloperskich. Kod warstwy SE (firmware + host) jest **wdrożony i bramkowany tą ścieżką**; `_arm_tamper_otp` prosi o osobne potwierdzenie `ARM`, a dongle już uzbrojony zgłasza `OTP_INIT:1` i jest pomijany.
+> **Uwaga wdrożeniowa:** uzbrojenie sygnałów SE to **nieodwracalny** `sl_se_init_otp()`, który zamraża też secure boot (OFF). Robimy to **wyłącznie w kroku pieczętowania produkcyjnego provisioningu** (domyślny w `provision_dongle`; `--no-lock` pomija), **nigdy** automatycznie przy starcie ani na płytkach deweloperskich. Kod warstwy SE (firmware + host) jest **wdrożony i bramkowany tą ścieżką**; `_arm_tamper_otp` prosi o osobne potwierdzenie `ARM`, a dongle już uzbrojony zgłasza `OTP_INIT:1` i jest pomijany.
 >
-> **Zweryfikowane na sprzęcie (2026-11-13):** pierwszy dongiel (`...3E32FE`) przeszedł pełny `--lock`; status czyta `OTP_INIT:1;SECURE_BOOT:0;EMPGD:2;SUPGD:2;FILTER_CNT:4;RESET_THRESH:0`, debug lock `LOCK_ACTIVE:1`. Walidacja bez `--lock` najpierw wyłapała błąd mapowania statusu (`sl_se_read_otp` dla nieuzbrojonego OTP **nie** zwraca `COMMAND_IS_INVALID` — teraz każdy wynik `!= OK` = „nieuzbrojony"). `sl_se_read_otp` zwraca poziomy **użytkownika**, nie efektywne.
+> **Zweryfikowane na sprzęcie (2026-11-13):** pierwszy dongiel (`...3E32FE`) przeszedł pełne pieczętowanie; status czyta `OTP_INIT:1;SECURE_BOOT:0;EMPGD:2;SUPGD:2;FILTER_CNT:4;RESET_THRESH:0`, debug lock `LOCK_ACTIVE:1`. Walidacja bez pieczętowania (`--no-lock`) najpierw wyłapała błąd mapowania statusu (`sl_se_read_otp` dla nieuzbrojonego OTP **nie** zwraca `COMMAND_IS_INVALID` — teraz każdy wynik `!= OK` = „nieuzbrojony"). `sl_se_read_otp` zwraca poziomy **użytkownika**, nie efektywne.
 >
 > **Flash a sen EM2:** dongiel śpi w EM2 (zegar debug stoi) → pyOCD „No ACK". `provision_dongle._keep_awake_flash` trzyma go wybudzonym przez heartbeat po COM (osobny interfejs USB od CMSIS-DAP) wokół każdego flasha. `flashbat` nadal nie ma kroku wybudzenia — ręczny `flash.bat` śpiącego dongla wymaga tego samego (scratchpad `flash_awake.py`).
 
@@ -252,11 +253,11 @@ Filtr: okno `SL_SE_TAMPER_FILTER_PERIOD_33S`, próg `SL_SE_TAMPER_FILTER_THRESHO
 
 | Detektor | Status | Uwagi |
 |---|---|---|
-| Odpytywanie GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów; pull-up impulsowy co 1 s) | **Aktywne** | `tamper_external_init()` wołane w `app.c`; co 1 s włącza pull-up i próbkuje piny. Wymaga fizycznego przełącznika/siatki od pinów do GND — bez okablowania pull-up trzyma piny wysoko i nic się nie wyzwala. Próg 1. |
-| Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 30 / 30 / 50 / 30 (tolerancyjne). Może je też wyzwolić błąd klienta. |
+| Odpytywanie GPIO PC5 / PC0 (przełącznik obudowy, siatka przewodów; pull-up impulsowy co 1 s) | **Aktywne** | `tamper_external_init()` wołane w `app.c`; co 1 s włącza pull-up i próbkuje piny. Wymaga fizycznego przełącznika/siatki od pinów do GND — bez okablowania pull-up trzyma piny wysoko i nic się nie wyzwala. Próg 1. |
+| Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 50 / 50 / 50 / 50 (tolerancyjne). Może je też wyzwolić błąd klienta. |
 | Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne** | Próg 2. `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać policzona jako zdarzenie (niezweryfikowane na sprzęcie). |
 | Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne** | Próg 2. Słaby start kwarcu też ustawia te flagi. |
-| `EMU_TemperatureGet()` poza -10..+70 °C -> `TEMP_EXTREME` | **Aktywne** | Próg 3, odpytywanie co 5 s. Dużo ostrzejsze niż specyfikacja układu -40..+125 °C; dongle w nagrzanym samochodzie lub w zimnym aucie kuriera może go wyzwolić. |
+| `EMU_TemperatureGet()` poza -10..+70 °C -> `TEMP_EXTREME` | **Aktywne** | Próg 12 (12 × 5 s = 60 s utrzymania), odpytywanie co 5 s. Dużo ostrzejsze niż specyfikacja układu -40..+125 °C; dongle w nagrzanym samochodzie lub w zimnym aucie kuriera może go wyzwolić. |
 | `tamper_manager_report_voltage_glitch()` (monitor baterii) | **Tylko API** | Nic jej nie wywołuje. |
 | `tamper_manager_report_emp()` | **Tylko API** | Nic jej nie wywołuje. Prawdziwy czujnik EMP to źródło SE 17 powyżej. |
 | Szyfrowany trwały log zdarzeń na stronie User Data | **Aktywne** | Zob. niżej. |

@@ -1,5 +1,7 @@
 ﻿# Ochrona głównej aplikacji (Nuitka i Themida)
 
+> **Checklista utwardzania (co jest włączone / co przywrócić przed produkcją):** [`themida_nuitka_hardening.md`](themida_nuitka_hardening.md). Część opcji ochronnych (m.in. `--themida-sandbox-monitors`, anti-debugger) została w trakcie prac **wyłączona do testów** — przed oddaniem produkcyjnym trzeba je przywrócić.
+
 ## 1. Przegląd
 Aplikacja hosta dla Windows (Compass) współpracuje z bezpiecznym donglem USB. Jeśli aplikację hosta da się łatwo zdekompilować (np. standardowy bytecode Pythona), atakujący może po prostu wydobyć `admin_pin`, odtworzyć klucze kryptograficzne metodą inżynierii wstecznej albo wyciąć patchem sprawdzanie licencji. Aby temu zapobiec, stosowany jest obowiązkowy, wielowarstwowy proces zaciemniania i wirtualizacji.
 
@@ -16,9 +18,9 @@ Aplikacja hosta dla Windows (Compass) współpracuje z bezpiecznym donglem USB. 
 ### Warstwa 3: Themida
 * **Mechanizm:** Komercyjny system ochrony oprogramowania, który opakowuje skompilowaną binarkę Nuitki.
 * **Korzyść:** 
-  - **Anti-Debugger:** Wykrywa uruchomienie pod x64dbg, OllyDbg lub GDB i wtedy wywołuje awarię programu.
+  - **Anti-Debugger:** własny silnik Themidy wykrywa debugery i wywołuje awarię. **Uwaga:** plugin anti-debugger **Nuitki** jest w buildzie produkcyjnym **celowo pominięty** (kolizje z Windows 11 VBS/Hyper-V — zob. `compilation.md`).
   - **Anti-Dump:** Uniemożliwia zrzucenie rozpakowanego pliku wykonywalnego z RAM.
-  - **Anti-VM/Emulation:** Blokuje uruchamianie w maszynach wirtualnych i sandboksach, często używanych przez osoby zajmujące się inżynierią wsteczną.
+  - **Anti-VM/Emulation:** Themida potrafi blokować uruchamianie w VM/sandboksach, **ale w buildzie produkcyjnym jest to WYŁĄCZONE** — `--themida-sandbox-monitors` celowo pominięte, aby aplikacja działała pod Windows 11 VBS/Hyper-V (`compilation.md`). W produkcji Anti-VM **nie jest aktywne**.
   - **Wirtualizacja kodu:** Przekształca fragmenty natywnego kodu asemblera x86/x64 w nierozpoznawalny, własnościowy bytecode maszyny wirtualnej.
 
 ## 3. Synergia zabezpieczeń

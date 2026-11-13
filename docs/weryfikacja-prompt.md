@@ -18,9 +18,11 @@ Przeanalizuj WSZYSTKIE pliki w `KeySec/docs/` (i podkatalogach). W szczególnoś
 - `agent_knowledge/` — `hardware_and_environment.md`, `hardware_discoveries.md`, `compass_security_context.md`, `project_requirements.md`, `software_architecture.md`
 - `features/` — `battery_sleep.md`, `python_to_c_prompt.md`
 - `insights/` — `uart_rx_overrun_tuning.md`
-- `refactorings/README.md`, `antitamper-casing-debate.md`, `dongle_provisioning.md`, `todo.md`
+- `antitamper-casing-debate.md`, `dongle_provisioning.md`, `todo.md`
 
-(`security_evaluation_prompt.md`, `weryfikacja-prompt.md` (ten plik) oraz `weryfikacja-wynik.md` (poprzedni wynik) potraktuj jako materiał pomocniczy, nie audytuj ich.)
+**WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz `security_evaluation_prompt.md`, `weryfikacja-prompt.md` (ten plik) i `weryfikacja-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
+
+**WYMÓG KOMPLETNOŚCI (dokument idzie do klienta):** audytuj KAŻDY plik w zakresie **wiersz-po-wierszu, bez próbkowania**. Nie wolno pominąć żadnego pliku „z braku budżetu". Zero tolerancji dla błędów, bzdur i halucynacji — każda rozbieżność MUSI mieć twardy dowód (a) cytat + (b) `plik:linia` kodu lub odpowiedź MCP + (c) sprzeczność; bez dowodu (b) NIE wpisuj. Jeśli pliku nie da się w pełni przejść — zgłoś to jawnie, nie udawaj.
 
 ## 3. Źródła prawdy (w tej kolejności ważności)
 

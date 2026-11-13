@@ -17,7 +17,7 @@ System pracuje w trzech różnych trybach energetycznych Silicon Labs (Energy Mo
 |:---|:---|:---|:---|:---:|:---:|:---|
 | **EM0** | **Aktywny** | ARM Cortex-M33 pracuje z częstotliwością 78 MHz | Wszystkie szybkie zegary (HFXO/DPLL), DMA, EUSART i sprzętowa kryptografia Vault aktywne | ~6–8 mA | 0 ns | Aktywne odszyfrowywanie, wykonywanie bezpiecznych algorytmów (RPC) i szyfrowanie odpowiedzi. |
 | **EM1** | **Aktywny bezczynny** | Wstrzymany przez `WFI` (Wait For Interrupt, czekanie na przerwanie) | **W 100% aktywne.** Oscylator wysokiej częstotliwości (HFXO), DMA i EUSART0 nasłuchują z prędkością 921 600 bodów | ~1,5–2,5 mA | ~38 ns (3 cykle CPU) | Mikrouśpienie między bajtami/pakietami UART. Zachowuje natychmiastową odpowiedź bez opóźnień. |
-| **EM2/3** | **Głębokie uśpienie** | Wyłączony; zawartość RAM zachowana | Szybkie zegary i UART wyłączone. Aktywne są tylko ULFRCO (1 kHz) i wykrywanie przerwań GPIO | **~1 µA** | ~10 µs | Tryb oszczędzania baterii o ultraniskim poborze energii, uruchamiany, gdy brakuje sygnału heartbeat z aplikacji hosta. |
+| **EM2/3** | **Głębokie uśpienie** | Wyłączony; zawartość RAM zachowana | Szybkie zegary i UART wyłączone. Aktywny zegar niskiej częstotliwości (**LFRCO** w EM2 dla SYSRTC, `security_rtc.c:57`; ULFRCO ~1 kHz dopiero przy krańcu EM3) i wybudzanie Wake-on-RX / GPIO | **~2–3 µA** (EM2) / ~1 µA (kraniec EM3) | ~10 µs | Tryb oszczędzania baterii o ultraniskim poborze energii, uruchamiany, gdy brakuje sygnału heartbeat z aplikacji hosta. |
 
 ---
 

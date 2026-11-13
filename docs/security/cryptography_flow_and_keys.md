@@ -13,9 +13,9 @@ Poniższa tabela zbiera wszystkie klucze kryptograficzne używane w systemie:
 | **PUF Root Key (RK)** | Krzem EFR32MG24 (automatycznie przy starcie, fizyka pamięci SRAM). | Istnieje wyłącznie w ulotnych komórkach sprzętowych i jest ukryty przed głównym procesorem Cortex-M33. Znika po wyłączeniu zasilania. | Używany przez wbudowany sprzętowy silnik bezpieczeństwa (HSE) do opakowywania (szyfrowania) innych kluczy przechowywanych w pamięci Flash. | **KRYTYCZNA** |
 | **Klucz prywatny tożsamości (urządzenie)** | Wewnątrz procesora kryptograficznego EFR32 (podczas provisioningu). | Przechowywany w pamięci Flash (NVM3), ale opakowany (zaszyfrowany) kluczem PUF. Nikt (nawet Twój kod w C) nie ma dostępu do jego postaci jawnej. | Tożsamość urządzenia. Używany WYŁĄCZNIE do podpisywania klucza efemerycznego przy podłączeniu USB, co dowodzi, że jest to autentyczny dongle. | **KRYTYCZNA** |
 | **Klucz publiczny tożsamości (urządzenie)** | Pochodny od powyższego klucza prywatnego tożsamości podczas provisioningu. | Część certyfikatu urządzenia przechowywanego w postaci jawnej w pamięci Flash NVM3 dongla. Wysyłany do PC przy starcie. | Weryfikowany przez PC, poświadcza powiązanie fizycznego urządzenia z fabryką. | Publiczna |
-| **Klucz efemeryczny PC (ECDHE)** | Proces Pythona (Compass) na komputerze klienta, przy każdym połączeniu. | Pamięć RAM aplikacji. Niszczony po wyprowadzeniu klucza sesji. | Jedna połowa układanki Diffiego-Hellmana służącej do wyprowadzenia klucza sesji. Zmienia się po rozłączeniu/wymuszonej rotacji. | Chroniona (PFS) |
+| **Klucz efemeryczny PC (ECDHE)** | Proces Pythona (Compass) na komputerze klienta, przy każdym połączeniu. | Pamięć RAM aplikacji. Niszczony po wyprowadzeniu klucza sesji. | Jedna połowa układanki Diffiego-Hellmana służącej do wyprowadzenia klucza sesji. Nowy przy każdym połączeniu (nowy handshake). | Chroniona (PFS) |
 | **Klucz efemeryczny urządzenia (ECDHE)** | Mikrokontroler EFR32MG24, przy każdym połączeniu. | Pamięć RAM silnika kryptograficznego. Niszczony po wyprowadzeniu klucza sesji. | Druga połowa układanki Diffiego-Hellmana. | Chroniona (PFS) |
-| **Klucz sesji (AES-256-GCM)** | Wynik HKDF na obu urządzeniach (PC i dongle) na podstawie wymiany kluczy efemerycznych. | Pamięć RAM PC i ulotne sloty koprocesora w EFR32. Całkowicie niszczony po rotacji klucza (np. co minutę) lub odłączeniu USB. | Właściwe „mięso”. Tym kluczem szyfrujemy fizyczne dane przepływające przez port COM. Rotacja chroni przed zrzutami pamięci RAM z PC. | **WYSOKA** |
+| **Klucz sesji (AES-256-GCM)** | Wynik HKDF na obu urządzeniach (PC i dongle) na podstawie wymiany kluczy efemerycznych. | Pamięć RAM PC i ulotne sloty koprocesora w EFR32. Niszczony po **wygaśnięciu sesji** (300 s bezczynności), resecie lub nowym handshake'u — nie natychmiast przy odłączeniu USB (nowy klucz przy każdym połączeniu; **brak rotacji w trakcie sesji**). | Właściwe „mięso”. Tym kluczem szyfrujemy fizyczne dane przepływające przez port COM. Nowy handshake na każde połączenie (PFS) chroni przed zrzutami pamięci RAM z PC. | **WYSOKA** |
 
 ---
 
@@ -70,7 +70,5 @@ sequenceDiagram
     Compass (PC Client)->>EFR32 (PUF Dongle): GCM_ENCRYPT(AES_Session_Key, Counter=1, Data="Check status")
     EFR32 (PUF Dongle)-->>Compass (PC Client): GCM_ENCRYPT(AES_Session_Key, Counter=2, Data="OK")
     
-    Note over Compass (PC Client), EFR32 (PUF Dongle): (Po 1 minucie) - REKEYING
-    Compass (PC Client)->>EFR32 (PUF Dongle): CMD_REKEY (bez zrywania sesji)
-    Note over Compass (PC Client), EFR32 (PUF Dongle): Zniszczenie AES_Session_Key, wygenerowanie nowego.
+    Note over Compass (PC Client), EFR32 (PUF Dongle): Koniec sesji (300 s bezczynności / reset / nowy handshake) → klucz zniszczony. Nowe połączenie = nowy handshake (PFS). Brak rotacji w trakcie sesji.
 `

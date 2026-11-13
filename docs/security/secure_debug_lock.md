@@ -151,7 +151,7 @@ Przebieg `secure_debug_lock.py lock`:
 
 Warstwy zabezpieczeń przed przypadkowym zablokowaniem płytek deweloperskich:
 1. `protected_devices.json` (podłączoną płytkę dodaje się przez `secure_debug_lock.py protect`; numer seryjny usuwa się tylko ręczną edycją pliku);
-2. `--lock` trzeba jawnie przekazać do `provision_dongle.py` (albo odpowiedzieć `y` w menu) i potwierdzić, wpisując `LOCK`;
+2. pieczętowanie jest **domyślne** w `provision_dongle.py`, ale wymaga potwierdzenia przez wpisanie `LOCK` (CLI; `--yes` je pomija) lub odpowiedzi `y` w menu; `--no-lock` całkiem pomija pieczętowanie (tryb deweloperski);
 3. firmware zbudowany przed powstaniem Command Key (`BUILTIN_KEY:0`) w ogóle nie potrafi zablokować.
 
 Inne komendy CLI: `status`, `unlock` (buduje token w pamięci, zapisuje zdarzenie w `device.json`, zrzuca log tamper i wypisuje komendę pyOCD), `protect`. Opcje: `--port COMx`, `--store DIR` (dane urządzeń), `--keys DIR` (folder z Command Key).
@@ -177,7 +177,7 @@ Klucz w OTP dongla nigdy się nie zmienia, więc po rotacji istnieją dwie grupy
 ### Procedura przejścia do prawdziwej produkcji
 1. Wygeneruj klucz produkcyjny do osobnego folderu: `python keyadmin/scripts/generate_debug_command_key.py --keys <production keys dir>`. To również nadpisuje nagłówek firmware'u.
 2. Przebuduj przez `compile.bat` i potwierdź odcisk w `debug_command_pubkey.h`.
-3. Zablokuj dongle produkcyjne. Sama blokada nie odczytuje klucza prywatnego (firmware instaluje swój wbudowany klucz publiczny), ale odblokowania już tak. `provision_dongle.py ... --lock` działa więc bez zmian. Do odblokowań używaj `secure_debug_lock.py unlock --keys <production keys dir>`. Konsola administracyjna zawsze używa domyślnego `keyadmin/keys`.
+3. Zablokuj dongle produkcyjne. Sama blokada nie odczytuje klucza prywatnego (firmware instaluje swój wbudowany klucz publiczny), ale odblokowania już tak. pieczętowanie w `provision_dongle.py` działa więc bez zmian. Do odblokowań używaj `secure_debug_lock.py unlock --keys <production keys dir>`. Konsola administracyjna zawsze używa domyślnego `keyadmin/keys`.
 4. **Zachowaj klucz deweloperski**: dongle już nim zablokowane zależą od niego na zawsze.
 5. Przechowuj produkcyjny klucz prywatny **offline / poza git**, z kopią zapasową. Obecny klucz deweloperski oraz klucz prywatny Root CA są śledzone w git, co jest dopuszczalne wyłącznie na etapie rozwoju.
 

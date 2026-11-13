@@ -24,7 +24,7 @@ Wgrywa finalny firmware produkcyjny (`keyfirmware.hex`), aby zapieczętować don
 W tym trybie provisioning administracyjny jest trwale zablokowany i akceptowane są tylko zaszyfrowane zapytania aplikacji.
 
 ### Provisioning fabryczny (nie tutaj)
-Pełny pipeline produkcyjny znajduje się w KeySec: `python KeySec/keyadmin/scripts/provision_dongle.py 365 3 [--lock]` (dostępny także w menu konsoli administracyjnej, sekcja *FACTORY*). Najpierw uruchom go z `--check`: to wstępna kontrola tylko do odczytu (skrypty, obrazy, para Root CA, sonda pyOCD, wolny port COM, SWD niezablokowane, zgodność Command Key z nagłówkiem), która niczego nie zmienia.
+Pełny pipeline produkcyjny znajduje się w KeySec: `python KeySec/keyadmin/scripts/provision_dongle.py 365 3` — **domyślnie pieczętuje** (Secure Debug Lock + OTP tamper); `--no-lock` to pomija (tryb deweloperski). Dostępny także w menu konsoli administracyjnej, sekcja *FACTORY*. Najpierw uruchom go z `--check`: to wstępna kontrola tylko do odczytu (skrypty, obrazy, para Root CA, sonda pyOCD, wolny port COM, SWD niezablokowane, zgodność Command Key z nagłówkiem), która niczego nie zmienia.
 Sam niczego nie wgrywa: wywołuje `compile.bat`, `set_factory_mode.bat` i `set_production_mode.bat` z tego folderu, więc te skrypty pozostają jedynym źródłem budowania i wgrywania obrazów firmware'u.
 
 ---
@@ -37,12 +37,12 @@ Firmware produkcyjny blokuje własny port SWD za pomocą Secure Engine (bez potr
 Strona hosta: `KeySec/keyadmin/scripts/secure_debug_lock.py` oraz sekcja menu konsoli administracyjnej *SECURE DEBUG LOCK*.
 
 1. **Raz na produkt (klucz wspólny dla całej produkcji):** `python KeySec/keyadmin/scripts/generate_debug_command_key.py` tworzy `KeySec/keyadmin/keys/debug_command_key.pem` (obok Root CA) i zapisuje klucz publiczny do `src/secure/debug_command_pubkey.h`. Przebuduj za pomocą `compile.bat`. Obecny klucz jest kluczem deweloperskim; przed właściwą produkcją wygeneruj nowe klucze.
-2. **Ochrona dongli deweloperskich:** `python KeySec/keyadmin/scripts/secure_debug_lock.py protect` dodaje podłączony dongle do `KeySec/keyadmin/keys/secure_debug/protected_devices.json`. Każda ścieżka blokowania (CLI, menu administracyjne, `provision_dongle.py ... --lock`) odrzuca chronione numery seryjne, zanim cokolwiek zostanie wysłane do dongla.
-3. **Blokada:** `python KeySec/keyadmin/scripts/provision_dongle.py 365 3 --lock` lub `python KeySec/keyadmin/scripts/secure_debug_lock.py lock`. Zapisuje publiczny Command Key do OTP (nieodwracalnie), włącza secure debug i nakłada blokadę. Kasowanie urządzenia (device erase) pozostaje dostępne.
+2. **Ochrona dongli deweloperskich:** `python KeySec/keyadmin/scripts/secure_debug_lock.py protect` dodaje podłączony dongle do `KeySec/keyadmin/keys/secure_debug/protected_devices.json`. Każda ścieżka blokowania (CLI, menu administracyjne, pieczętowanie w `provision_dongle.py`) odrzuca chronione numery seryjne, zanim cokolwiek zostanie wysłane do dongla.
+3. **Blokada:** `python KeySec/keyadmin/scripts/provision_dongle.py 365 3` (pieczętuje domyślnie) lub `python KeySec/keyadmin/scripts/secure_debug_lock.py lock`. Zapisuje publiczny Command Key do OTP (nieodwracalnie), włącza secure debug, nakłada blokadę i uzbraja OTP tamper. Kasowanie urządzenia (device erase) pozostaje dostępne.
 4. **Odblokowanie (do następnego resetu):** `python KeySec/keyadmin/scripts/secure_debug_lock.py unlock`, a następnie odczyt pamięci przez pyOCD w trybie attach (`-M attach`) bez resetowania dongla.
 
 Po zablokowaniu `flash.bat`, `set_factory_mode.bat` i `set_production_mode.bat` działają tylko bezpośrednio po odblokowaniu (reset na końcu wgrywania ponownie blokuje port).
-Dane poszczególnych dongli znajdują się w `KeySec/keyadmin/keys/secure_debug/devices/device_<SE serial>/` (`device.json`, certyfikat dostępu, foldery `challenge_<hex>/`).
+Dane poszczególnych dongli znajdują się w `KeySec/keyadmin/keys/secure_debug/devices/device_<SE serial>/` (`device.json` — historia STATUS/LOCK/UNLOCK — oraz zrzut logu tamper `userdata_dump.bin`). **Żaden materiał odblokowujący (certyfikat, token) nie jest zapisywany** — jest budowany w pamięci przy każdym odblokowaniu.
 
 ---
 
