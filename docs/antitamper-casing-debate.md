@@ -29,7 +29,7 @@ Ten plik zbiera ustalenia z rozmów o tym, jak dongle (Seeed XIAO MG24, EFR32MG2
 
 ## 1. Stan sprzętu i firmware antitamper
 
-| | Sprzęt (wg kolegi) | Firmware (`KeyFirmware/src/core/tamper_simulation.c:14-17`) |
+| | Sprzęt (wg kolegi) | Firmware (`KeyFirmware/src/core/tamper_external.c:14-17`) |
 | :--- | :--- | :--- |
 | Wejście tamper 1 | D5 = **PC05** (EM4WU7) | PC5 (zgodne) |
 | Wejście tamper 2 | D0 = **PC00** (EM4WU6) | **PC6** (D6, nic nie podpięte; PC06 nie ma EM4WU) |
@@ -124,7 +124,7 @@ Szacunki baterii: prąd MCU + płytka ok. 1,7 µA (Seeed zmierzył 1,95 µA w EM
 ## 9. Pliki
 
 * Firmware:
-  * `KeyFirmware/src/core/tamper_simulation.c` (piny, przerwania), `tamper_manager.c` (progi, log, wipe);
+  * `KeyFirmware/src/core/tamper_external.c` (piny, przerwania), `tamper_manager.c` (progi, log, wipe);
   * `KeyFirmware/app.c` (uśpienie), `src/core/power_stats.c` (czasy EM);
   * `KeyFirmware/src/core/security_rtc.c` (zegar licencji), `security_nvm.c`;
   * `KeyFirmware/src/core/battery_monitor.c`;

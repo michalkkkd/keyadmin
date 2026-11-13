@@ -65,77 +65,38 @@ void configure_secure_engine_tamper(sl_se_command_context_t *cmd_ctx)
 
 #### 2. Konfiguracja zewnętrznych pinów tamper (GPIO EFR32MG24 i TamperManager)
 
-Poniższy kod (zaimplementowany w [`tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c)) pokazuje, jak na EFR32MG24 konfigurowane i obsługiwane są zewnętrzne, fizyczne zdarzenia tamper (np. otwarcie obudowy lub przecięcie pętli przewodu na PC5 / PC6) z użyciem cyfrowego filtrowania glitchy i przerwań:
+Zwykłe przerwania GPIO portów C/D **nie** wyzwalają się w uśpieniu EM2 (RM EFR32xG24 24.3.10.1), dlatego firmware ([`tamper_external.c`](../../../KeyFirmware/src/core/tamper_external.c)) stosuje **odczyt impulsowy**: co 1 s timer okresowy (`sl_sleeptimer`) na chwilę włącza wewnętrzny pull-up, próbkuje piny tamper i natychmiast go wyłącza, żeby nie pobierać prądu przez pętlę. Zerwana pętla / otwarta obudowa odczytuje się jako logiczne `1` i powiadamia `TamperManager` przez bramkę NSC. Mechanizm jest inicjowany w `app.c` (`tamper_external_init()`) i działa na donglu:
 
 ```c
 #include "sl_gpio.h"
+#include "sl_sleeptimer.h"
 #include "tamper_manager.h"
 
-// Definicja fizycznych pinów w Seeed XIAO MG24
-#define TAMPER1_PORT  SL_GPIO_PORT_C
-#define TAMPER1_PIN   5
+// Piny fizyczne (konfiguracja w tamper_external.c)
+#define TAMPER1_PORT SL_GPIO_PORT_C
+#define TAMPER1_PIN  5
+static sl_gpio_t tamper1_gpio = { TAMPER1_PORT, TAMPER1_PIN };
+static sl_sleeptimer_timer_handle_t tamper_timer;
 
-static sl_gpio_t tamper_gpio = { .port = TAMPER1_PORT, .pin = TAMPER1_PIN };
-static int32_t int_no = -1;
-
-// Callback sprzętowego przerwania GPIO (wywoływany, gdy obwód zostanie przerwany / obudowa otwarta)
-static void tamper1_callback(uint8_t pin, void *ctx)
+// Odczyt impulsowy co 1 s (działa też w EM2, w przeciwieństwie do przerwań GPIO portu C)
+static void tamper_timer_callback(sl_sleeptimer_timer_handle_t *h, void *d)
 {
-    (void)pin;
-    (void)ctx;
-    // Powiadom centralny TamperManager
-    tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1, "Casing opened / Wire 1 severed");
+    (void)h; (void)d;
+    sl_gpio_set_pin_mode(&tamper1_gpio, SL_GPIO_MODE_INPUT_PULL_FILTER, 1); // włącz pull-up
+    __NOP(); __NOP(); __NOP(); __NOP();                                     // ustalenie napięcia
+    bool tampered = 0;
+    sl_gpio_get_pin_input(&tamper1_gpio, &tampered);
+    sl_gpio_set_pin_mode(&tamper1_gpio, SL_GPIO_MODE_DISABLED, 0);          // wyłącz pull-up (oszczędność prądu)
+    if (tampered) {
+        nsc_tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1, "Chassis enclosure microswitch triggered");
+    }
 }
 
-void configure_external_tamper_pin(void)
+void tamper_external_init(void)
 {
-    // Skonfiguruj pin jako wejście z pull-upem i włączonym cyfrowym filtrem glitchy
-    sl_gpio_set_pin_mode(&tamper_gpio, SL_GPIO_MODE_INPUT_PULL_FILTER, 1);
-
-    // Przydziel i skonfiguruj przerwanie na zboczu narastającym
-    sl_gpio_configure_external_interrupt(
-        &tamper_gpio,
-        &int_no,
-        SL_GPIO_INTERRUPT_RISING_EDGE,
-        tamper1_callback,
-        NULL
-    );
+    sl_sleeptimer_start_periodic_timer_ms(&tamper_timer, 1000, tamper_timer_callback, NULL, 0, 0);
 }
 ```
-
-## Instrukcja Testowania dla Marka
-
-Obecny kod w KeyFirmware wykorzystuje bezpieczną "piaskownicę" do testów otwarcia obudowy. Omija ona nieodwracalne przepalanie pamięci OTP, ale w 100% symuluje zachowanie sprzętu dla oprogramowania.
-
-### 1. Co dokładnie zrobić fizycznie (Podłączenie)?
-* Zlokalizuj na płytce **Seeed XIAO MG24** pin oznaczony jako **D0** (w kodzie C jest to mapowane jako port PA00).
-* Zlokalizuj dowolny pin **GND** (masa).
-* Podłącz zwykły przycisk (krańcówkę) lub pętlę z przewodu pomiędzy pinem **D0** a **GND**.
-* **Stan Normalny (Zabezpieczony):** Przycisk jest wciśnięty (obwód zwarty do masy). Symuluje to prawidłowo zamkniętą, nienaruszoną obudowę.
-* **Stan Alarmowy (Atak):** Puszczenie przycisku (lub przecięcie drutu zabezpieczającego) powoduje rozwarcie obwodu. Wbudowany w procesor rezystor *Pull-up* natychmiast podciąga napięcie na pinie D0 do zasilania (VCC). To wyzwala błyskawiczne sprzętowe przerwanie.
-
-### 2. Jak to sprawdzić i co dokładnie zobaczysz?
-
-**Krok 1: Test Wizualny (Urządzenie zasilane, bez włączonego skryptu Python na PC)**
-* Dopóki trzymasz przycisk wciśnięty (obudowa zamknięta) - dioda nie reaguje.
-* Gdy tylko puścisz przycisk (otwarcie obudowy), wewnętrzny licznik `tamper_event_count` rośnie o 1. Wbudowana dioda na płytce XIAO **zamiga szybko jeden raz**.
-* Jeśli znów wciśniesz i po chwili puścisz przycisk, układ zanotuje to jako drugi atak. Dioda zamiga **dwa razy pod rząd**. Liczba błysków LED zawsze obrazuje całkowitą sumę zarejestrowanych naruszeń.
-
-**Krok 2: Test Telemetrii (Komunikacja z Windows)**
-* Włącz Dongle'a i uruchom w systemie Windows nasz skrypt backendowy: python main.py.
-* Jeśli wcześniej klikałeś przyciskiem, Dongle ciągle przechowuje to w pamięci RAM.
-* W trakcie autoryzacji (krok 1.7), Python odpyta dongle'a o kondycję sprzętową (MSG_SYS_HEALTH).
-* Ponieważ dongle zanotował atak, wyśle raport do Windowsa.
-* W konsoli Windowsa natychmiast po połączeniu zobaczysz ogromny alert bezpieczeństwa:
-```text
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!! CRITICAL SECURITY ALERT: PHYSICAL TAMPER DETECTED !!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-```
-Oraz bieżący odczyt parametrów środowiskowych wyciągnięty ze sprzętu, np.:
-TamperEvents: 2, Temp: 24.5C
-
-> **Ważna uwaga fizyczna:** Obecna konfiguracja "wersji testowej" przechowuje wynik w szybkiej pamięci RAM, by uchronić żywotność Flasha i nie uszkodzić Secure Engine (OTP). To oznacza, że jeżeli **całkowicie odłączysz zasilanie** (np. wyjmiesz układ z USB w celu przeniesienia na inne biurko), to log w RAM zniknie i po podłączeniu licznik znowu będzie wynosił zero. Do testowania samej mechaniki obudowy wystarczy zasilanie z powerbanka i obserwacja diody LED!
 
 ## TamperManager w KeyFirmware: wykrywanie, logowanie i kasowanie (stan implementacji)
 
@@ -145,25 +106,39 @@ Kod: `KeyFirmware/src/core/tamper_manager.c` (świat Secure), punkty wejścia pr
 
 Każdy detektor kończy się w jednej funkcji, `tamper_manager_detected(type, metadata)`, która działa w **świecie Secure**. Zwiększa ona licznik danego typu, a gdy licznik osiągnie próg dla tego typu, wywołuje `tamper_manager_trigger_wipe()` (raz na uruchomienie).
 
-| Typ | Źródło (kto wywołuje) | Próg |
-|---|---|---|
-| `PHYSICAL_PIN1` / `PIN2` | Przerwania GPIO PC5 / PC6, `tamper_simulation.c` (Non-Secure) → `nsc_tamper_manager_detected` | 1 / 1 |
-| `LOGICAL_VRX_SHORT` | Obcięty pakiet VRX, `prod_router.c` (Non-Secure) | 30 |
-| `LOGICAL_VRX_INVALID` / `MISMATCH` / `NO_SESSION` | `security_users.c` (Secure) | 30 / 50 / 30 |
-| `VOLTAGE_GLITCH` | Flagi brown-out (spadku napięcia) AVDD / IOVDD0 w `EMU->IF`, odpytywane przez `tamper_manager_process()` | 2 |
-| `DIGITAL_GLITCH` | Flagi błędów HFXO w `HFXO0->IF`, to samo odpytywanie | 2 |
-| `TEMP_EXTREME` | `EMU_TemperatureGet()` co 5 s, poza zakresem -10..+70 °C | 3 |
-| `EMP` | `tamper_manager_report_emp()` istnieje, ale **nic jej nie wywołuje** (brak czujnika EMP) | 1 |
+Progi pochodzą z tablicy `tamper_thresholds[]` w [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c#L34-L45). Poniżej master table z planem po ustaleniach **2026-11-12** (obejmuje warstwę software oraz planowaną warstwę Secure Engine / OTP):
 
-`tamper_manager_process()` jest wywoływana z pętli głównej świata Non-Secure (`app.c`) przez `nsc_tamper_manager_process()`. Własne sprzętowe reakcje tamper Secure Engine (`sl_se_otp_init_t.tamper_levels`) **nie** są skonfigurowane; są tylko opisane w komentarzach.
+| # | Detektor | Warstwa | OTP | Kiedy licznik rośnie | Licznik | Log? | Stary próg | **Nowy próg** | Wipe? |
+|:--:|---|:--:|:--:|---|---|:--:|:--:|:--:|:--:|
+| 1 | Obudowa PC5/PC0 | soft | — | pin „otwarte” (poll co 1 s) | RAM / per-cykl | TAK | 1 / 1 | **1** | TAK, po 1 |
+| 2 | VRX_SHORT | soft | — | ucięty token (przy komendzie) | RAM / per-cykl | TAK | 30 | **50** | TAK, po 50 |
+| 3 | VRX_INVALID | soft | — | pusty token | RAM / per-cykl | TAK | 30 | **50** | TAK, po 50 |
+| 4 | VRX_MISMATCH | soft | — | niezgodny token | RAM / per-cykl | TAK | 50 | **50** | TAK, po 50 |
+| 5 | VRX_NO_SESSION | soft | — | token bez sesji | RAM / per-cykl | TAK | 30 | **50** | TAK, po 50 |
+| 6 | Temperatura (−10/+70) | soft | — | odczyt poza zakresem (co 5 s) | RAM / per-cykl | TAK | 3 | **12** (=1 min) | TAK, po 12 |
+| 7 | Voltage (BOD) | soft | — | flaga brown-out (ciągle) | RAM / per-cykl | TAK | 2 | **—** | **NIE** (tylko log) |
+| 8 | Digital (HFXO) | soft | — | flaga błędu kwarcu (ciągle) | RAM / per-cykl | TAK | 2 | **—** | **NIE** (tylko log) |
+| 9 | SE 17 EMPGD (glitch EM) | SE | **4 reset** | sprzęt SE → reset | NVM3 / persistent | TAK (na reboot) | — (0) | **50 resetów** | TAK, po 50 resetach |
+| 10 | SE 18 SUPGD (glitch napięcia) | SE | **4 reset** | sprzęt SE → reset | NVM3 / persistent | TAK (na reboot) | — (0) | **50 resetów** | TAK, po 50 resetach |
+| 11 | SE 10/11 Mailbox/DCI (brute-force unlock) | SE | **1** | zła komenda SE | NVM3 / persistent | TAK | — (0) | **10** | TAK, po 10 |
+| 12 | SE 15 TRNG (brak entropii) | SE | **1** | monitor TRNG | — | TAK | — (0) | **—** | **NIE** (tylko log) |
+| 13 | SE 22 temp / 23–24 DPLL | SE | **0 pomiń** | — | — | — | — | — | NIE |
+| — | **erase OTP (poziom 7)** | SE | **NIGDY** | — | — | — | — | — | — |
 
-Liczniki są trzymane wyłącznie w RAM świata Secure. Reset lub wyłączenie zasilania zeruje je, więc każdy próg oznacza „N zdarzeń w obrębie jednego cyklu zasilania”.
+Jak to czytać:
+* **RAM / per-cykl** — licznik zeruje się przy resecie / braku prądu. W serwerze na USB (do roku bez resetu) praktycznie nie zeruje się przez rok — stąd tolerancyjne progi.
+* **NVM3 / persistent** — przeżywa reset; potrzebny tylko dla glitcha, bo glitch sam robi reset (zeruje RAM).
+* **Log?** — każde zdarzenie (nie tylko to z wipe) idzie do zaszyfrowanego logu na stronie User Data; log **przeżywa wipe**, więc fabryka zawsze ma co czytać.
+* **Wipe** = `sl_se_erase_device` — **odwracalny** (reflash + provisioning). **Nigdy** erase-OTP (brick).
+* Temperatura to jedyny detektor czasowy (odczyt co 5 s → próg 12 = 60 s poza zakresem). Reszta liczy zdarzenia/flagi.
+
+`tamper_manager_process()` jest wołana z pętli głównej świata Non-Secure (`app.c`) przez `nsc_tamper_manager_process()`. Szczegóły warstwy SE / OTP: [Plan warstwy OTP / Secure Engine](#plan-warstwy-otp--secure-engine-decyzje-2026-11-12).
 
 ### Logowanie
 
 * **Nic, co loguje świat Secure, nie trafia na USB.** W obrazie Secure `send_log()` jest zaślepką (`sec_main.c`), a `tamper_manager_init(NULL)` pozostawia `active_tf` puste. Linia `SECURITY ALERT` dla każdego zdarzenia i końcowa linia `CRITICAL: SELF-DESTRUCT` są budowane, ale odrzucane.
 * Co host faktycznie widzi:
-  * PC5 / PC6 events: in the factory provisioning firmware `tamper_simulation.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. In both builds the LED lights for 1 s.
+  * PC5 / PC6 events: in the factory provisioning firmware `tamper_external.c` (Non-Secure) sends its own `SECURITY ALERT` log; production firmware sends nothing over USB. In both builds the LED lights for 1 s.
   * Zdarzenia VRX: tylko odpowiedź z błędem na nieudane wywołanie (`ERR: Tamper attempt detected`). Token wydany przez dongle, ale już zamknięty, dostaje `ERR: VRX token expired` i **nie** jest zdarzeniem tamper ([compass_security_mechanisms.md, 7.1 pkt 6](compass_security_mechanisms.md#71-architektura-zabezpieczenia-i-zasady-ochrony)).
   * `MSG_SYS_HEALTH` (`0x10`, factory provisioning firmware only): `TamperEvents:<total>, Temp:<t>, TamperLog:<entries in the persistent log>`.
   * Production firmware: the tamper counters and the tamper log page reach the host only inside the DIAG stream that the dongle encrypts with the Tamper Log Key ([diagnostics.md](diagnostics.md)), readable by KeySec admin only.
@@ -180,7 +155,7 @@ Jest **jedna** reakcja, taka sama w każdej kompilacji (stary przełącznik `TAM
 
 **To nie jest trwały bric.** Po `sl_se_erase_device()` port debug jest otwarty, więc dongle flashujesz sondą SWD i provisionujesz normalnie — Command Key w OTP przeżywa, a `install_command_key` jest idempotentny. Trwale zbrickować mógłby tylko permanentny lock (`sl_se_disable_device_erase()` / reakcja „Erase OTP”), którego **nie** wykonujemy.
 
-> **Kasowanie niszczy dane klienta — progi są celowo tolerancyjne.** Fizyczny tamper (PC5/PC6) i EMP kasują już od 1 zdarzenia; błędne tokeny VRX dopiero po 30–50 w jednym cyklu zasilania, żeby zacięta lub powtarzająca żądania aplikacja nie zbrickowała dongla od ręki. Incydent 2026-11-05 (benchmark Compass, 12 równoległych bloków SSD dzielących jeden token) był powodem podniesienia progów; od tej pory dongle trzyma pulę tokenów, a zamknięty token nie daje punktu. **Przed wysyłką przejrzyj progi** (`tamper_thresholds` w `tamper_manager.c`).
+> **Kasowanie niszczy dane klienta — progi są celowo tolerancyjne.** Fizyczny tamper (PC5/PC0) kasuje już od 1 zdarzenia (otwarcia obudowy nie zrobisz przypadkiem); błędne tokeny VRX dopiero po **50** w jednym cyklu zasilania, żeby zacięta lub powtarzająca żądania aplikacja nie zbrickowała dongla. Incydent 2026-11-05 (benchmark Compass, 12 równoległych bloków SSD dzielących jeden token) był powodem podniesienia progów. Temperatura: próg **12** odczytów (≈1 min poza −10/+70), bo awaria klimy w serwerowni potrafi godzinami trzymać >70 °C. **Voltage/digital → tylko log, nie wipe** (wpięcie USB / słaby start kwarcu fałszywie je wzbudzają; realny szybki glitch łapie SE 17/18). **Przed wysyłką przejrzyj progi** (`tamper_thresholds` w `tamper_manager.c`).
 
 **Test sprzętowy (dongle do poświęcenia):**
 1. Wgraj firmware produkcyjny.
@@ -214,6 +189,28 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 | 9 User secure boot | Niepoprawny podpis naszego firmware'u | 0 = Ignore | **N/A do czasu włączenia secure boot** | Secure boot (RTSL) nie jest włączony (`compass_security_mechanisms.md` §10). |
 | Poziom reakcji 7 „Erase OTP” | Trwale brickuje układ (klucze OTP znikają, układ już nigdy się nie uruchomi) | nie dotyczy | Nieużywany | Tylko dla źródeł z zerowym odsetkiem fałszywych alarmów. Niezalecany dla nas. |
 
+### Plan warstwy OTP / Secure Engine (decyzje 2026-11-12)
+
+**Dwie warstwy.** (a) Software (dół master table) już działa, bez OTP — czyta zwykłe peryferia (GPIO, EMU, HFXO) i robi nasz wipe. (b) Sygnały SE (góra) wymagają jednorazowego wpisu poziomu w OTP i dziś są wyłączone (poziom 0).
+
+**Co jest w OTP i co wypala co.** OTP ma osobne „szufladki”, zapisywane różnymi operacjami:
+* `sl_se_init_otp_key(...)` — publiczny **Command Key** (Secure Debug). **Już wypalone** na donglach z `--lock`.
+* `sl_se_init_otp(...)` — blok **secure boot + poziomy tamperów** (`tamper_levels[]`), oba naraz, **raz i nieodwracalnie**. **Nietknięte** (tamper levels = 0). Uzbrojenie glitcha = ten wpis; przy okazji na zawsze zamraża decyzję o secure boot (zapis z secure boot OFF = już nigdy go nie włączysz na tym układzie).
+
+**W OTP idzie tylko liczba (poziom), nie kod.** Poziomy: `0` ignore · `1` interrupt (SE podnosi `SETAMPERHOST`, resztę robi nasz handler, reflashowalny) · `4` reset (autonomiczny, sprzętowy) · `7` erase-OTP (brick — **nigdy**). „Co się wykona” przy poziomie 1 to zwykły firmware (`SETAMPERHOST_IRQHandler` → `tamper_manager_detected`), zmienialny reflashem; w OTP nie ma nazw funkcji ani adresów.
+
+**Szybki glitch (17/18) → poziom 4 (reset), nie wipe.** Atak to mikrosekundowa szpilka celująca w przeskoczenie instrukcji — CPU może nie zdążyć obsłużyć przerwania, więc poziom 1+wipe jest zawodny. Reset jest autonomiczny (SE działa niezależnie od zglitchowanego rdzenia), **niedestrukcyjny** i logowany na reboocie (`SE_TAMPER_RESET`, [`tamper_manager.c:150-153`](../../../KeyFirmware/src/core/tamper_manager.c#L150)) plus liczony w DIAG. **Nie brickujemy**, bo te detektory **fałszywie wzbudzają się** w normalnym świecie (ESD przy dotknięciu/wpięciu, brudne USB, inrush, EM w serwerowni) — brick zabiłby płacącego klienta nieodwracalnie. Zamiast tego: **po 50 resetach-tamper (lifetime, licznik w NVM3) firmware robi odwracalny wipe** na czystym starcie.
+
+**Voltage/digital software (7, 8) → tylko log.** Wpięcie USB (inrush) i słaby start kwarcu fałszywie podnoszą te flagi (do tego `tamper_manager_init()` nie czyści starych flag), więc wipe po 2 = ryzyko skasowania klienta po dwóch wpięciach. Prawdziwy szybki glitch łapie teraz SE 17/18.
+
+**Temperatura — zostaje programowo.** −10/+70 jest celowe (serwerownie/biura). Czujnik SE 22 odpala dopiero ~−35/+120 °C, więc software odpala pierwszy; SE 22 pomijamy. Próg programowy podniesiony do 12 (1 min), bo awaria klimy w serwerowni potrafi godzinami trzymać >70 °C i przy progu 3 (15 s) kasowałaby legalne urządzenia.
+
+**„Martwy firmware” / PRS (25–31) — pominięte.** Przy zawsze włączonym Secure Debug Lock atakujący nie wgra ani nie zatrzyma firmware przez SWD, więc główny powód dla PRS→SE odpada. Ochrona pinów zostaje na software pollu (firmware w produkcji zawsze działa, poll chodzi też w EM2).
+
+**Numeracja sygnałów SE (MG24 = Series 2 Config 4, `sl_se_manager_defines.h`):** 17 EMPGD, 18 SUPGD, 21 BOD, 22 temp, 23/24 DPLL, 10/11 Mailbox/DCI, 15 TRNG. Numery **0, 3, 6, 13 to `RESERVED`** (puste, nie do użycia).
+
+> **Uwaga wdrożeniowa:** uzbrojenie sygnałów SE to **nieodwracalny** `sl_se_init_otp()`, który zamraża też secure boot. Robimy to **wyłącznie w kroku provisioningu produkcyjnego** (`provision_dongle --lock`), **nigdy** automatycznie przy starcie ani na płytkach deweloperskich. Kod warstwy SE jest bramkowany tą ścieżką. Stan: progi software wdrożone; warstwa SE/OTP do zaprogramowania i przetestowania (nietestowalna bez wypalenia OTP).
+
 ### Funkcje układu poza modułem tamper SE
 
 | Mechanizm | Status | Uwagi |
@@ -227,7 +224,7 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 
 | Detektor | Status | Uwagi |
 |---|---|---|
-| Przerwania GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów) | **Tylko kod** | Wymaga przełącznika lub siatki podłączonych od PC5 / PC6 do GND. Bez tego pull-up trzyma piny w stanie wysokim i nic się nie wyzwala. Próg 1. |
+| Odpytywanie GPIO PC5 / PC6 (przełącznik obudowy, siatka przewodów; pull-up impulsowy co 1 s) | **Aktywne** | `tamper_external_init()` wołane w `app.c`; co 1 s włącza pull-up i próbkuje piny. Wymaga fizycznego przełącznika/siatki od pinów do GND — bez okablowania pull-up trzyma piny wysoko i nic się nie wyzwala. Próg 1. |
 | Kontrole VRX (short / invalid / mismatch / no session) | **Aktywne** | Progi 30 / 30 / 50 / 30 (tolerancyjne). Może je też wyzwolić błąd klienta. |
 | Flagi brown-out EMU (AVDD / IOVDD0) -> `VOLTAGE_GLITCH` | **Aktywne** | Próg 2. `tamper_manager_init()` nie czyści starych flag, więc flaga pozostała po włączeniu zasilania lub podłączeniu USB może zostać policzona jako zdarzenie (niezweryfikowane na sprzęcie). |
 | Flagi błędów HFXO (did-not-start, buffer freeze) -> `DIGITAL_GLITCH` | **Aktywne** | Próg 2. Słaby start kwarcu też ustawia te flagi. |

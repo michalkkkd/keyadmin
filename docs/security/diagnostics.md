@@ -65,7 +65,7 @@ There is no key, cipher, check code, threshold or meaning in it. Everything that
 * `secure_debug/diag_stream_decoder.py`, `sealed_record_decoder.py`, `diag_host_evaluator.py`, `diag_evaluator.py`, `diag_support_report.py`;
 * the meanings in `keyadmin/core/constants.py`.
 
-Production firmware answers no plaintext diagnostics. `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`). PC5/PC6 tamper events send no `SECURITY ALERT` log over USB in production (`tamper_simulation.c`). The event is still written to the encrypted tamper log, and the LED still lights for 1 s.
+Production firmware answers no plaintext diagnostics. `MSG_BATTERY_INFO`, `MSG_SYS_HEALTH`, `MSG_DEBUG_TIME`, `MSG_MEM_INFO` and `MSG_NVM_DIAG` exist only in the factory provisioning firmware (`src/admin/admin_diag_router.c`). PC5/PC6 tamper events send no `SECURITY ALERT` log over USB in production (`tamper_external.c`). The event is still written to the encrypted tamper log, and the LED still lights for 1 s.
 
 ## Check codes (internal, shown only after deciphering)
 
@@ -110,7 +110,7 @@ Since 2026-11-10 the RAM log is kept in `.noinit` RAM (`system_log.c`): a soft r
 * `PWR SLEEP` at each battery sleep entry: GPIO `MODEL`/`MODEH`/`DOUT` of ports A-D (only when they changed).
 * `PWR WAKE rx`: the first 3 PA09 wake-ups of each period.
 
-Field meanings are documented next to `PWR_FMT_*` in `src/core/core_messages.h`. The external trace-mesh tamper (`tamper_external.c`) is disabled in this build.
+Field meanings are documented next to `PWR_FMT_*` in `src/core/core_messages.h`. The external trace-mesh tamper (`tamper_external.c`, pulsed pull-up poll every 1 s) is initialized from `app.c` and active in this build.
 
 ## Reset cause
 

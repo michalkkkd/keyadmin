@@ -8,6 +8,14 @@
     {
       "timestamp": "2026-11-12T04:24:47+00:00",
       "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-12T10:16:30+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-12T10:22:12+00:00",
+      "event": "STATUS"
     }
   ],
   "usb_port": "COM7",

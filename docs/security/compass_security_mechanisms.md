@@ -2,7 +2,7 @@
 
 > **Status Dokumentu:** Wersja rozszerzona ze statusem wdrożenia funkcji mikrokontrolera ([AKTYWNE] vs [NIEWYKORZYSTANE])  
 > **Zakres:** Aplikacja Compass (klient Windows), moduł KeySec (warstwa pośrednia API/transport) oraz KeyFirmware (klucz sprzętowy USB na bazie Seeed XIAO MG24 / Silicon Labs EFR32MG24)  
-> **Poziom Weryfikacji:** 100% informacji potwierdzone w kodzie źródłowym repozytoriów `KeySec`, `KeyFirmware`, `compass` oraz w oficjalnej dokumentacji technicznej Silicon Labs (Gecko SDK / Simplicity SDK, karty katalogowe EFR32MG24, nota aplikacyjna AN1247).
+> **Zakres weryfikacji:** twierdzenia konfrontowane z kodem źródłowym (`KeySec`, `KeyFirmware`, `compass`) i dokumentacją Silicon Labs (Simplicity SDK, karty katalogowe EFR32MG24, AN1247). Przy rozbieżności źródłem prawdy jest kod firmware (np. progi tamper: `tamper_manager.c`).
 
 ---
 
@@ -72,12 +72,12 @@ flowchart TD
 * **Stan w projekcie:** **`[AKTYWNE]`**. Wykorzystywany przez stos PSA Crypto do generowania efemerycznych par kluczy sesyjnych ECDHE oraz wektorów inicjalizujących na kluczu USB.
 
 #### 5. Sensory Anomalii Zasilania (Voltage Glitch Detectors) — `[AKTYWNE PROGRAMOWO - 50%]`
-* **Opis sprzętowy:** Detektory sprzętowe `VGLITCHFALLING` oraz `VGLITCHRISING` monitorujące linie zasilania pod kątem mikrosekundowych skoków lub zapadów napięcia, mających na celu wywołanie błędów w przetwarzaniu instrukcji warunkowych (fault injection).
+* **Opis sprzętowy:** Sprzętowy detektor skoków/zapadów napięcia zasilania Secure Engine (**supply glitch detector**, sygnał tamper SE **18** `SL_SE_TAMPER_ATAMPDET_SUPGD` w `sl_se_manager_defines.h`, numeracja S2C4 dla MG24). Uwaga: nazwy `VGLITCHFALLING`/`VGLITCHRISING` pochodzą z EFR32xG21 i **nie** dotyczą MG24. Wykrywa mikrosekundowe zaburzenia zasilania (fault injection).
 * **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W oprogramowaniu układowym `KeyFirmware` wdrożono bezzwłoczną detekcję sprzętowych rejestrów spadku napięcia modułu EMU (`EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)`) oraz procedurę zgłoszeniową `tamper_manager_report_voltage_glitch()`. Przekroczenie progu (2 incydenty) wyzwala procedurę autodestrukcji (zdarzenie zapisane w logu z flagą WIPE). Pełne 100% sprzętowej reakcji w koprocesorze Secure Engine wymaga nieodwracalnego zaprogramowania pamięci OTP (`sl_se_init_otp()`), co zostało odłożone do etapu produkcji masowej, aby chronić płytki deweloperskie przed zniszczeniem niestabilnym zasilaniem USB.
 
-#### 6. Detektor Zakłóceń Zegara i Logiki Cyfrowej (`DGLITCH`) — `[AKTYWNE PROGRAMOWO - 50%]`
+#### 6. Detektor Zakłóceń Zegara i Logiki Cyfrowej (digital/EMP glitch detector, sygnał SE **17** `SL_SE_TAMPER_ATAMPDET_EMPGD`) — `[AKTYWNE PROGRAMOWO - 50%]`
 * **Opis sprzętowy:** Wbudowany układ monitorujący stabilność wewnętrznych generatorów taktujących i wykrywający asynchroniczne szpilki zegarowe (clock glitching).
-* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W oprogramowaniu układowym `KeyFirmware` aktywna jest detekcja sprzętowych anomalii i błędów buforowania oscylatora kwarcowego HFXO (`HFXO0->IF & (HFXO_IF_DNSERR | HFXO_IF_BUFOUTFREEZEERR | HFXO_IF_BUFOUTDNSERR)`) oraz API `tamper_manager_report_digital_glitch()`. Rejestracja anomalii zegarowej (próg 2 zdarzeń) inicjuje procedurę uceglenia. Pełne 100% wymaga aktywacji flagi `SL_SE_TAMPER_FLAG_DGLITCH_ALWAYS_ON` w rejestrach OTP Secure Engine.
+* **Stan w projekcie:** **`[AKTYWNE PROGRAMOWO - 50%]`**. W oprogramowaniu układowym `KeyFirmware` aktywna jest detekcja sprzętowych anomalii i błędów buforowania oscylatora kwarcowego HFXO (`HFXO0->IF & (HFXO_IF_DNSERR | HFXO_IF_BUFOUTFREEZEERR | HFXO_IF_BUFOUTDNSERR)`) oraz API `tamper_manager_report_digital_glitch()`. Rejestracja anomalii zegarowej (próg 2 zdarzeń) inicjuje procedurę uceglenia. Pełne 100% wymaga ustawienia poziomu OTP (1/2/4) dla sygnału SE 17 w Secure Engine (nazwa `DGLITCH` z xG21 nie dotyczy MG24).
 
 #### 7. Sensory Skrajnych Temperatur — `[AKTYWNE PROGRAMOWO - 50%]`
 * **Opis sprzętowy:** Zintegrowany sensor temperatury rdzenia z konfigurowalnym progiem alarmowym antysabotażowym w HSE (ochrona przed wymrażaniem do ataku Cold Boot lub przegrzewaniem do wywołania błędów logicznych).
@@ -118,20 +118,20 @@ flowchart TD
 ### 2.2 Fizyczna Pętla Antysabotażowa (Anti-Tamper Wire i Krańcówki Obudowy) — `[AKTYWNE - 100%]`
 
 #### Implementacja Fizyczna w Kluczu XIAO MG24
-* **Pliki źródłowe:** [`KeyFirmware/src/core/tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c) oraz [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c).
+* **Pliki źródłowe:** [`KeyFirmware/src/core/tamper_external.c`](../../../KeyFirmware/src/core/tamper_external.c) oraz [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c).
 * **Konfiguracja pinów GPIO:**
   * Kanał Tamper 1: Port C, Pin 5 (`TAMPER1_PORT SL_GPIO_PORT_C`, `TAMPER1_PIN 5`).
   * Kanał Tamper 2: Port C, Pin 6 (`TAMPER2_PORT SL_GPIO_PORT_C`, `TAMPER2_PIN 6`).
 * **Tryb pracy sprzętowej:**
   * Piny są konfigurowane przez funkcję `sl_gpio_set_pin_mode(&tamper_gpio, SL_GPIO_MODE_INPUT_PULL_FILTER, 1)`. Wbudowany w procesor rezystor podciągający (pull-up) jest aktywny, a wbudowany cyfrowy filtr zakłóceń (glitch filter) eliminuje fałszywe wzbudzenia wywołane szumem elektromagnetycznym.
   * W stanie nienaruszonym (obudowa zamknięta), pętla z cienkiego przewodu miedzianego lub styk krańcówki wewnątrz obudowy zwiera pin bezpośrednio do masy (GND), wymuszając logiczny stan niski (`0`).
-* **Detekcja Naruszenia (Przerwanie Sprzętowe Zboczem Rosnącym):**
+* **Detekcja Naruszenia (Odczyt Impulsowy co 1 s):**
   * W momencie otwarcia obudowy, próby podważenia, przecięcia przewodu lub jego odlutowania obwód zostaje przerwany.
-  * Rezystor podciągający natychmiast podnosi napięcie na wejściu mikrokontrolera do poziomu $V_{CC}$ (stan logiczny `1`).
-  * Wyzwala to sprzętowe przerwanie mikrokontrolera konfigurowane w rejestrach NVIC za pośrednictwem `sl_gpio_configure_external_interrupt(&tamper_gpio, &int_no, SL_GPIO_INTERRUPT_RISING_EDGE, tamper_callback, NULL)`.
+  * Zwykłe przerwania GPIO portu C **nie** działają w uśpieniu EM2, więc firmware odpytuje piny: co 1 s timer okresowy (`sl_sleeptimer`) na chwilę włącza wewnętrzny pull-up i próbkuje wejście. Przy zerwanej pętli pull-up podnosi napięcie do $V_{CC}$ (stan logiczny `1`).
+  * Odczyt `1` (`sl_gpio_get_pin_input` w `tamper_external.c`) powoduje wywołanie `nsc_tamper_manager_detected(...)` przez bramkę NSC; pull-up jest zaraz wyłączany, by nie pobierać prądu.
 * **Reakcja Oprogramowania Układowego (Firmware):**
-  * Procedura obsługi przerwania (`tamper1_callback` / `tamper2_callback`) ustawia flagę przerwaniową, która w pętli procesowej wywołuje `tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1/PIN2, "...")`.
-  * Centralny menedżer inkrementuje liczniki naruszeń, wysyła alert przez `send_log()`, uruchamia 1-sekundowy nieblokujący impuls diody LED (`sl_led_led`) oraz nadzoruje próg autodestrukcji (próg 3 zdarzeń).
+  * Callback timera (`tamper_timer_callback` w `tamper_external.c`) wywołuje `nsc_tamper_manager_detected(TAMPER_TYPE_PHYSICAL_PIN1/PIN2, "...")` przez bramkę NSC, co po stronie Secure trafia do `tamper_manager_detected()`.
+  * Centralny menedżer (`tamper_manager_detected()`, świat Secure) inkrementuje liczniki naruszeń, zapisuje zaszyfrowany wpis do logu i nadzoruje próg autodestrukcji (dla pinów fizycznych **próg 1**). Sygnalizacja diodą LED realizowana jest w świecie Non-Secure, a nie w tej funkcji.
   * Stan zdarzeń sabotażowych jest raportowany do aplikacji Windows poleceniem `MSG_SYS_HEALTH` (`TamperEvents:X, Temp:Y.ZC, TamperLog:N`, N = liczba wpisów w trwałym logu).
 
 ---
@@ -154,7 +154,7 @@ W oprogramowaniu `KeyFirmware` zaimplementowano scentralizowaną klasę i moduł
 ├──────────────────────────────────────┴──────────────────────┼────────────────────┤
 │     KASOWANE PRZEZ SE (sl_se_erase_device) + RAM:           │    POZOSTAJE DO    │
 │              - Kod programu wymazany (0xFF)                 │     EKSTRAKCJI     │
-│              - Urządzenie permanentnie uceglone             │    ŚLEDCZEJ PO     │
+│      - Układ odblokowany, reprogramowalny (to NIE bric)     │    ŚLEDCZEJ PO     │
 │              - Niemożliwy reverse-engineering               │     SWD / J-LINK   │
 └─────────────────────────────────────────────────────────────┴────────────────────┘
 ```
@@ -162,14 +162,16 @@ W oprogramowaniu `KeyFirmware` zaimplementowano scentralizowaną klasę i moduł
 #### 1. Architektura i Kategorie Tamperów (`tamper_type_t`)
 Moduł definiuje 10 ścisłych kategorii naruszeń wraz z przypisanymi progami autodestrukcji:
 
+Progi pochodzą wprost z tablicy `tamper_thresholds[]` w [`KeyFirmware/src/core/tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c#L34-L45) (źródło prawdy). Progi VRX zostały świadomie podniesione (incydent 2026-11-05: 12 równoległych bloków SSD dzieliło jeden token), żeby zacięta lub powtarzająca żądania aplikacja nie zbrickowała dongla od ręki. Fizyczny tamper i EMP kasują już od 1 zdarzenia.
+
 | ID Typu | Identyfikator Enum | Źródło i Opis Zdarzenia | Próg do Autodestrukcji |
 |:---:|---|---|:---:|
-| 0 | `TAMPER_TYPE_PHYSICAL_PIN1` | Fizyczne otwarcie obudowy (krańcówka PC5) | **3** |
-| 1 | `TAMPER_TYPE_PHYSICAL_PIN2` | Przecięcie siatki / pętli przewodzącej (PC6) | **3** |
-| 2 | `TAMPER_TYPE_LOGICAL_VRX_SHORT` | Zmanipulowany / ucięty pakiet protokołu VRX (<8 bajtów) | **5** |
-| 3 | `TAMPER_TYPE_LOGICAL_VRX_INVALID` | Puste parametry uwierzytelniające VRX (user_hash/token == 0) | **5** |
-| 4 | `TAMPER_TYPE_LOGICAL_VRX_MISMATCH` | Niezgodny token VRX (próba ataku brute-force sesji) | **3** |
-| 5 | `TAMPER_TYPE_LOGICAL_VRX_NO_SESSION` | Zapytanie VRX dla nieistniejącej sesji użytkownika | **5** |
+| 0 | `TAMPER_TYPE_PHYSICAL_PIN1` | Fizyczne otwarcie obudowy (krańcówka PC5) | **1** |
+| 1 | `TAMPER_TYPE_PHYSICAL_PIN2` | Przecięcie siatki / pętli przewodzącej (PC6) | **1** |
+| 2 | `TAMPER_TYPE_LOGICAL_VRX_SHORT` | Zmanipulowany / ucięty pakiet protokołu VRX (<8 bajtów) | **30** |
+| 3 | `TAMPER_TYPE_LOGICAL_VRX_INVALID` | Puste parametry uwierzytelniające VRX (user_hash/token == 0) | **30** |
+| 4 | `TAMPER_TYPE_LOGICAL_VRX_MISMATCH` | Niezgodny token VRX (próba ataku brute-force sesji) | **50** |
+| 5 | `TAMPER_TYPE_LOGICAL_VRX_NO_SESSION` | Zapytanie VRX dla nieistniejącej sesji użytkownika | **30** |
 | 6 | `TAMPER_TYPE_TEMP_EXTREME` | Skrajna temperatura (< -10°C lub > 70°C), próbkowanie co 5s | **3** |
 | 7 | `TAMPER_TYPE_VOLTAGE_GLITCH` | Spadek/anomalia napięcia zasilania (BOD / VMON < 2.0V) | **2** |
 | 8 | `TAMPER_TYPE_DIGITAL_GLITCH` | Zakłócenie taktowania lub logiki (anomalie oscylatora HFXO0) | **2** |
@@ -179,7 +181,7 @@ Moduł definiuje 10 ścisłych kategorii naruszeń wraz z przypisanymi progami a
 Gdy dowolny moduł firmware wykryje anomalię, wywołuje centralną metodę:
 `tamper_manager_detected(tamper_type_t type, const char *metadata)`.
 1. **Ewidencja:** Zwiększa dedykowany licznik danego typu `tamper_counts[type]++` oraz globalny licznik `tamper_event_count++`.
-2. **Sygnalizacja Diodą LED:** Załącza diodę LED (`sl_led_turn_on(&sl_led_led)`) i uruchamia nieblokujący timer sprzętowy (`sl_sleeptimer_restart_timer_ms(&tamper_led_timer, 1000, ...)`), który po dokładnie **1 sekundzie** wyłącza diodę. Stan alarmu jest chroniony flagą `tamper_led_active`, uniemożliwiającą zgaszenie alertu przez rutynowe heartbeaty komunikacyjne.
+2. **Sygnalizacja Diodą LED (świat Non-Secure):** Zdarzenie fizyczne (PC5/PC0) zapala wbudowaną diodę LED na ok. 1 s. Dzieje się to w świecie Non-Secure; sama funkcja `tamper_manager_detected()` (Secure) nie steruje diodą (`tamper_manager_is_led_active()` zwraca `false`, a kod LED jest w `tamper_manager.c` jawnie delegowany do Non-Secure).
 3. **Telemetria:** Formatuje komunikat `"SECURITY ALERT: Tamper 'Nazwa' (#Total, total: Typ/Próg) [Metadane]"`. **Uwaga:** menedżer działa w świecie Secure, gdzie `send_log()` jest pustą zaślepką (`sec_main.c`), więc ten komunikat nie trafia na USB. Host widzi tylko logi z części Non-Secure (piny PC5/PC6), odpowiedzi błędów VRX oraz `MSG_SYS_HEALTH`.
 4. **Weryfikacja Progu:** Sprawdza, czy `tamper_counts[type] >= tamper_thresholds[type]`. W razie osiągnięcia limitu następuje natychmiastowe uruchomienie procedury autodestrukcji `tamper_manager_trigger_wipe()`.
 
@@ -212,7 +214,7 @@ python keyadmin/scripts/read_tamper_log.py --file userdata_dump.bin
 ### 2.4 Szyfrowany Kanał Komunikacyjny (Szyfrowany Transport RPC) — `[AKTYWNE]`
 
 #### Protokół Transportowy i Ramkowanie Danych
-* Komunikacja z kluczem USB odbywa się przez wirtualny port szeregowy (VCOM / USB CDC) z prędkością 115200 bps.
+* Komunikacja z kluczem USB odbywa się przez wirtualny port szeregowy (VCOM / USB CDC, peryferium **EUSART**) z prędkością **921600 bps** (`SL_IOSTREAM_EUSART_IO_STREAM_USERT_BAUDRATE`).
 * Na warstwie binarnej zastosowano protokół **TinyFrame** ([`KeyFirmware/src/core/TinyFrame.c`](../../../KeyFirmware/src/core/TinyFrame.c) oraz [`KeySec/keycomm/core/transport.py`](../../keycomm/core/transport.py)), zapewniający podział na ramki, kontrolę spójności sumami CRC16/CRC32 oraz trasowanie zapytań RPC.
 
 #### Silnik Kryptograficzny i Algorytmy
@@ -454,8 +456,8 @@ Wygenerowany plik wykonywalny podlega opancerzeniu przez silnik Oreans Themida (
 | **Krzem (EFR32MG24)** | Sprzętowy PUF i Key Wrapping | Silicon Labs Datasheet EFR32MG24 §3.8.6 | **`[100% - Aktywne, nietestowane na sprzęcie]`** | Klucz tożsamości `IDENTITY_KEY_ID` generowany w lokalizacji `SL_PSA_KEY_LOCATION_WRAPPED` (owinięty PUF). Dongle provisionowane wcześniej: klucz jawny do ponownego provisioningu. |
 | **Krzem (EFR32MG24)** | Przeciwdziałanie Atakom DPA | Silicon Labs Datasheet EFR32MG24 Table 3.1 | **`[100% - W pełni aktywne sprzętowo]`** | W 100% aktywne sprzętowo; maskowanie prądowe i losowe opóźnienia są wbudowaną autonomiczną cechą krzemu HSE. |
 | **Krzem (EFR32MG24)** | Generator TRNG (NIST SP 800-90A/B/C) | Silicon Labs Datasheet EFR32MG24 §3.8 | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; generator TRNG dostarcza fizycznej entropii dla kluczy efemerycznych ECDHE i soli HKDF. |
-| **Krzem (EFR32MG24)** | Sensory Napięcia (`VGLITCHFALLING/RISING`) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry BOD/VMON i TamperManager (próg 2 incydentów); 100% wymaga nieodwracalnego zaprogramowania pamięci OTP w Secure Engine. |
-| **Krzem (EFR32MG24)** | Detektor Taktowania i Logiki (`DGLITCH`) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry anomalii oscylatora HFXO0 i CFD; 100% wymaga aktywacji flagi `DGLITCH_ALWAYS_ON` w rejestrach OTP. |
+| **Krzem (EFR32MG24)** | Sensory Napięcia (supply glitch, sygnał SE 18 `SL_SE_TAMPER_ATAMPDET_SUPGD`) | Silicon Labs AN1247, `sl_se_manager_defines.h` | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry BOD (`EMU->IF`) i TamperManager (próg 2 incydentów); 100% wymaga nieodwracalnego zaprogramowania pamięci OTP w Secure Engine. Nazwy `VGLITCHFALLING/RISING` są z xG21, nie MG24. |
+| **Krzem (EFR32MG24)** | Detektor Taktowania i Logiki (digital/EMP glitch, sygnał SE 17 `SL_SE_TAMPER_ATAMPDET_EMPGD`) | Silicon Labs AN1247, `sl_se_manager_defines.h` | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo przez rejestry błędów oscylatora HFXO0 (`HFXO0->IF`); 100% wymaga poziomu OTP (1/2/4) dla sygnału 17. Nazwa `DGLITCH` jest z xG21, nie MG24. |
 | **Krzem (EFR32MG24)** | Sensory Skrajnych Temperatur | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo z próbkowaniem co 5s i progami <-10°C / >70°C w TamperManagerze; 100% wymaga powiązania ze sprzętowym alarmem OTP koprocesora HSE. |
 | **Krzem (EFR32MG24)** | Detektor Impulsów Elektromagnetycznych (EMP) | Silicon Labs Datasheet EFR32MG24 §3.8.7, AN1247 | **`[50% - Aktywne programowo]`** | W 50% wdrożone programowo z regułą Zero Tolerance (1 zdarzenie) i API zgłoszeń; 100% wymaga konfiguracji przerwania `SETAMPERHOST` w OTP. |
 | **Krzem (EFR32MG24)** | Trwałe Zerowanie Pamięci (Zeroization / Self-Destruct) | Silicon Labs AN1247 §3, [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c) | **`[100% - Zaimplementowane]`** | Device erase Secure Engine (`sl_se_erase_device`) z awaryjnym kasowaniem z RAM; jedyna reakcja na próg (bez trybu deweloperskiego / flagi CMake). Nietestowane na sprzęcie. |
@@ -463,7 +465,7 @@ Wygenerowany plik wykonywalny podlega opancerzeniu przez silnik Oreans Themida (
 | **Krzem (EFR32MG24)** | Blokada Debugera (Secure Debug Lock) | Silicon Labs Series 2 Secure Debug App Note | **`[Zaimplementowane - opcjonalne]`** | Blokada przez SE Manager z firmware (RPC `0x60-0x63`), odblokowanie challenge-response do resetu; jedyny sekret to Command Key, token budowany w pamięci i niezapisywany; włączana flagą `--lock` w `keyadmin/scripts/provision_dongle.py`. |
 | **Krzem (EFR32MG24)** | Certyfikacja Fabryczna Silicon Labs (Attestation) | Silicon Labs Datasheet EFR32MG24 Table 3.1 | **`[0% - Niewykorzystane]`** | W 0% wdrożone; weryfikacja tożsamości bazuje w 100% na własnym Root CA producenta oprogramowania. |
 | **Krzem (EFR32MG24)** | Izolacja ARM TrustZone (Cortex-M33) | Silicon Labs Datasheet EFR32MG24 Table 3.2, [`src/secure/sec_boot.c`](../../../KeyFirmware/src/secure/sec_boot.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; jednostka SAU dzieli Flash i RAM na strefy S, NSC i NS; strefa Secure izoluje algorytmy Compass IP, licencje RTC, sesje i krypto; bramki NSC z walidacją wskaźników CMSE. |
-| **Fizyczny (Klucz USB)** | Pętla przewodowa / styk w obudowie | [`KeyFirmware/src/core/tamper_simulation.c`](../../../KeyFirmware/src/core/tamper_simulation.c#L11-L64) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane i aktywne; piny PC5 i PC6 z filtrem pull-up wyzwalają przerwania i zgłoszenia do TamperManagera. |
+| **Fizyczny (Klucz USB)** | Pętla przewodowa / styk w obudowie | [`KeyFirmware/src/core/tamper_external.c`](../../../KeyFirmware/src/core/tamper_external.c#L11-L64) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane i aktywne; piny PC5 i PC6 z filtrem pull-up wyzwalają przerwania i zgłoszenia do TamperManagera. |
 | **Fizyczny / Środowiskowy** | Scentralizowany Menedżer Sabotażu (TamperManager) | [`KeyFirmware/src/core/tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; centralna klasa ewidencjonuje 10 kategorii tamperów, steruje diodą LED 1s i nadzoruje progi autodestrukcji. |
 | **Fizyczny / Śledczy** | Zaszyfrowany log tamperów (User Data) | [`KeyFirmware/src/core/tamper_manager.h`](../../../KeyFirmware/src/core/tamper_manager.h) | **`[100% - W pełni aktywne]`** | 64 wpisy po 16 B, szyfrowane AES-128 przez SE, na stronie User Data 0x0FE00000, przetrwają kasowanie urządzenia. Nietestowane na sprzęcie. |
 | **Kryptografia (Klucz USB)** | Wymiana kluczy ECDHE NIST P-256 | [`KeyFirmware/src/core/crypto/session_ecdhe.c`](../../../KeyFirmware/src/core/crypto/session_ecdhe.c) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; klucze efemeryczne PSA Crypto, sekret współdzielony z HKDF-SHA256, Perfect Forward Secrecy. |
