@@ -22,7 +22,7 @@ Przeanalizuj WSZYSTKIE pliki w `KeySec/docs/` (i podkatalogach). W szczególnoś
 - `prompts/` — `python-to-c.md`
 - `todo.md`
 
-**WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz `prompts/security-eval.md`, `prompts/doc-audit.md` (ten plik) i `docs-audyt-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
+**WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz cały folder `audit/` — `security-prompt.md`, `docs-audyt-prompt.md` (ten plik) i `docs-audyt-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
 
 **WYMÓG KOMPLETNOŚCI (dokument idzie do klienta):** audytuj KAŻDY plik w zakresie **wiersz-po-wierszu, bez próbkowania**. Nie wolno pominąć żadnego pliku „z braku budżetu". Zero tolerancji dla błędów, bzdur i halucynacji — każda rozbieżność MUSI mieć twardy dowód (a) cytat + (b) `plik:linia` kodu lub odpowiedź MCP + (c) sprzeczność; bez dowodu (b) NIE wpisuj. Jeśli pliku nie da się w pełni przejść — zgłoś to jawnie, nie udawaj. „Kompletność" oznacza **przejrzenie każdej linii**, a NIE wymóg, by dokument opisywał wszystko — brak opisu rzeczy nieistotnej dla bezpieczeństwa to nie rozbieżność (zob. §2.1).
 

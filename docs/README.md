@@ -38,7 +38,7 @@ Wiedza o bezpieczeństwie dongla (Seeed XIAO MG24 / EFR32MG24) i aplikacji hosta
 
 | Dokument | Zakres |
 |---|---|
-| [prompts/](prompts/) | Prompty pomocnicze: `doc-audit.md` (audyt dokumentacji), `security-eval.md`, `python-to-c.md`. |
-| [reports/weryfikacja-wynik.md](reports/weryfikacja-wynik.md) | Migawka wyniku audytu dokumentacji (historyczna). |
+| [audit/](audit/) | Audyt dokumentacji: [`docs-audyt-prompt.md`](audit/docs-audyt-prompt.md) (prompt), [`docs-audyt-wynik.md`](audit/docs-audyt-wynik.md) (wynik), [`security-prompt.md`](audit/security-prompt.md). |
+| [prompts/python-to-c.md](prompts/python-to-c.md) | Prompt pomocniczy: migracja Python → C. |
 | [refactorings/README.md](refactorings/README.md) | Rejestr zrealizowanych refaktoringów architektonicznych. |
 | [todo.md](todo.md) | Otwarte zadania. |

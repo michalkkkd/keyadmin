@@ -3,7 +3,7 @@
 The AI Agent operating in this workspace MUST strictly adhere to the following enhanced programming principles at all times. These rules govern architectural decisions, code generation, refactoring strategies, and problem-solving.
 
 **[SHARED KNOWLEDGE BASE RULE]**
-This file (AGENTS.md) and all documents it references (in the docs/agent_knowledge/ and docs/security/ folders) are the centralized knowledge base for both the **KeySec** and **KeyFirmware** projects. Agents working on KeyFirmware must reference these rules here. You no longer need to duplicate or synchronize these files to KeyFirmware.
+This file (AGENTS.md) and all documents it references (indexed in docs/README.md, under docs/security/, docs/architecture/ and docs/firmware/) are the centralized knowledge base for both the **KeySec** and **KeyFirmware** projects. Agents working on KeyFirmware must reference these rules here. You no longer need to duplicate or synchronize these files to KeyFirmware.
 
 ### COMPILATION & FLASHING INSTRUCTIONS FOR THE AGENT
 1. To compile: Execute the batch script `..\KeyFirmware\flashbat\compile.bat` (or from KeyFirmware root: `.\flashbat\compile.bat`). Always check if compilation is successful (exit code 0).
@@ -56,29 +56,31 @@ This file (AGENTS.md) and all documents it references (in the docs/agent_knowled
 
 ## Project Knowledge Base (History and Documentation)
 
-To maintain order and readability of the rules, detailed project history, hardware notes, and architectural details have been moved to separate documents in the docs/agent_knowledge/ folder. Always review them when in doubt while working with the hardware:
+The documentation was restructured on a one-topic-one-file (DRY) basis. The full index is in **[docs/README.md](docs/README.md)**; each topic has exactly one canonical file. Always review the relevant canon when in doubt while working with the hardware.
 
-* [Original Requirements (Compass)](docs/agent_knowledge/project_requirements.md)
-* [Hardware and Environment (Seeed XIAO MG24)](docs/agent_knowledge/hardware_and_environment.md)
-* [Software Architecture (KeySec & KeyFirmware)](docs/agent_knowledge/software_architecture.md)
-* [Architectural & Hardware Discoveries (SDK Bugs, RTC)](docs/agent_knowledge/hardware_discoveries.md)
-* [Compass Security Context](docs/agent_knowledge/compass_security_context.md)
-* [Dongle Provisioning, Build & Flash Scripts](docs/dongle_provisioning.md)
+Architecture:
+* [Original Requirements (Compass)](docs/architecture/requirements.md)
+* [Software Architecture & Repo Split (KeySec & KeyFirmware)](docs/architecture/software.md)
+* [Hardware & Environment (Seeed XIAO MG24, SDK notes, RTC, SDK bugs)](docs/architecture/hardware-environment.md)
 
 ## Security Architecture
 
-The detailed design and documentation of the project's security mechanisms are maintained in the docs/security/ folder:
+The detailed design of each security mechanism lives in exactly one file in docs/security/:
 
-* [Time-Based License Mechanism](docs/security/time_license_mechanism.md)
-* [Active Users Limit Mechanism](docs/security/users_limit_mechanism.md)
-* [Compass Authentication, One Device per Account and the Dongle User Identity](docs/security/authentication.md)
-* [Communication Encryption Mechanism](docs/security/communication_encryption.md)
-* [Main Application Protection (Nuitka & Themida)](docs/security/app_protection_nuitka_themida.md)
+* [MCU Hardware Security (EFR32MG24 / Secure Vault High)](docs/security/hardware-security.md)
+* [Cryptography & Keys (handshake, channel, key lifecycle, provisioning semantics)](docs/security/cryptography-and-keys.md)
+* [Provisioning (build/flash tooling & pipeline)](docs/security/provisioning.md)
 * [Hardware Anti-Tamper Protection](docs/security/antitamper.md)
-* [Cryptography Flow & Keys Architecture](docs/security/cryptography_flow_and_keys.md)
 * [Secure Debug Lock (SWD lock & challenge-response unlock)](docs/security/secure_debug_lock.md)
+* [Time-Based License Mechanism](docs/security/time-license.md)
+* [Active Users Limit & VRX Token Rotation](docs/security/users-limit.md)
+* [App Hardening (Nuitka & Themida)](docs/security/app-hardening.md)
+* [Compass Authentication, One Device per Account and the Dongle User Identity](docs/security/authentication.md)
 * [Dongle Diagnostics (DIAG command, codes-only report, sealed service code)](docs/security/diagnostics.md)
-* [Hardware Insights & Tuning](docs/insights/uart_rx_overrun_tuning.md)
+
+## Firmware Features
+* [Power Management & Battery Sleep](docs/firmware/power-and-sleep.md)
+* [UART RX Overrun Tuning](docs/firmware/uart-tuning.md)
 
 ## 10. Silicon Labs MCP Servers (Simplicity AI SDK)
 The Silicon Labs MCP servers are configured in `.mcp.json`. Pick the server that matches the task yourself and query it BEFORE guessing an implementation from general LLM knowledge:
