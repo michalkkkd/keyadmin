@@ -1,4 +1,4 @@
-# PROMPT: Audyt zgodności dokumentacji `KeySec/docs` (wynik: `weryfikacja-wynik.md`)
+# PROMPT: Audyt zgodności dokumentacji `KeySec/docs` (wynik: `docs-audyt-wynik.md`)
 
 > Wklej całość poniżej do innego modelu AI, który ma **dostęp do odczytu trzech repozytoriów** (`Compass`, `KeySec`, `KeyFirmware`) **oraz do serwera MCP Silicon Labs**. Jeśli weryfikator nie ma któregoś z tych dostępów — musi to jawnie zgłosić na początku i NIE udawać, że zweryfikował to, czego nie mógł sprawdzić.
 
@@ -16,13 +16,13 @@ Audyt dotyczy **faktów, liczb, nazw, odwołań i logiki** — **NIE** stylu, j�
 
 Przeanalizuj WSZYSTKIE pliki w `KeySec/docs/` (i podkatalogach). W szczególności:
 
-- `security/` — `antitamper.md`, `app_protection_nuitka_themida.md`, `authentication.md`, `communication_encryption.md`, `compass_security_mechanisms.md`, `cryptography_flow_and_keys.md`, `diagnostics.md`, `klucze_i_provisioning.md`, `secure_debug_lock.md`, `time_license_mechanism.md`, `users_limit_mechanism.md`
-- `agent_knowledge/` — `hardware_and_environment.md`, `hardware_discoveries.md`, `compass_security_context.md`, `project_requirements.md`, `software_architecture.md`
-- `features/` — `battery_sleep.md`, `python_to_c_prompt.md`
-- `insights/` — `uart_rx_overrun_tuning.md`
-- `antitamper-casing-debate.md`, `dongle_provisioning.md`, `todo.md`
+- `security/` — `antitamper.md`, `app-hardening.md`, `authentication.md`, `cryptography-and-keys.md`, `diagnostics.md`, `hardware-security.md`, `provisioning.md`, `secure_debug_lock.md`, `time-license.md`, `users-limit.md`
+- `architecture/` — `hardware-environment.md`, `requirements.md`, `software.md`
+- `firmware/` — `power-and-sleep.md`, `uart-tuning.md`
+- `prompts/` — `python-to-c.md`
+- `todo.md`
 
-**WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz `security_evaluation_prompt.md`, `weryfikacja-prompt.md` (ten plik) i `weryfikacja-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
+**WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz `prompts/security-eval.md`, `prompts/doc-audit.md` (ten plik) i `docs-audyt-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
 
 **WYMÓG KOMPLETNOŚCI (dokument idzie do klienta):** audytuj KAŻDY plik w zakresie **wiersz-po-wierszu, bez próbkowania**. Nie wolno pominąć żadnego pliku „z braku budżetu". Zero tolerancji dla błędów, bzdur i halucynacji — każda rozbieżność MUSI mieć twardy dowód (a) cytat + (b) `plik:linia` kodu lub odpowiedź MCP + (c) sprzeczność; bez dowodu (b) NIE wpisuj. Jeśli pliku nie da się w pełni przejść — zgłoś to jawnie, nie udawaj. „Kompletność" oznacza **przejrzenie każdej linii**, a NIE wymóg, by dokument opisywał wszystko — brak opisu rzeczy nieistotnej dla bezpieczeństwa to nie rozbieżność (zob. §2.1).
 
@@ -97,9 +97,9 @@ Nadaj każdej pozycji trzy etykiety:
 
 **Status (pewność):** `POTWIERDZONA` (ma dowód (b)) · `PRAWDOPODOBNA` (silna poszlaka, brak twardego źródła przeciwnego — opisz czego brakuje) · `NIE DO ZWERYFIKOWANIA` (wpisz tylko jeśli dotyczy twierdzenia istotnego dla bezpieczeństwa).
 
-## 7. Format wyniku — dokument `weryfikacja-wynik.md`
+## 7. Format wyniku — dokument `docs-audyt-wynik.md`
 
-Zapisz cały wynik w **jednym dokumencie o nazwie `weryfikacja-wynik.md`**. Struktura:
+Zapisz cały wynik w **jednym dokumencie o nazwie `docs-audyt-wynik.md`**. Struktura:
 
 1. **Nagłówek:** data, które repozytoria i wersje (commit/branch) badałeś, czy MCP Silicon Labs był dostępny, jakich dostępów Ci zabrakło.
 2. **Jedna wielka tabela** wszystkich rozbieżności, **pogrupowana** — najpierw po `Istotności` (KRYTYCZNA → INFO), w obrębie istotności po `Kategorii`. Kolumny:

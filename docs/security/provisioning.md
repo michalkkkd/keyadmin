@@ -1,4 +1,6 @@
-# Provisioning dongla, skrypty budowania i wgrywania
+# Provisioning dongla: narzędzia budowania i wgrywania
+
+> **Kanon narzędzi build/flash.** To jedyne miejsce opisujące skrypty `flashbat/` i pipeline `provision_dongle.py`. Cykl życia **kluczy** podczas provisioningu (co powstaje, gdzie leży) — [`cryptography-and-keys.md`](cryptography-and-keys.md). Blokada SWD — [`secure_debug_lock.md`](secure_debug_lock.md).
 
 Budowanie, wgrywanie (flashowanie) i fabryczny provisioning dongla KeySec (Seeed Studio XIAO MG24, Silicon Labs EFR32MG24).
 Skrypty budowania i wgrywania znajdują się w `KeyFirmware/flashbat/`; pipeline provisioningu znajduje się w `KeySec/keyadmin/scripts/provision_dongle.py`.
@@ -29,20 +31,11 @@ Sam niczego nie wgrywa: wywołuje `compile.bat`, `set_factory_mode.bat` i `set_p
 
 ---
 
-## Secure Debug Lock (blokada SWD)
+## Secure Debug Lock (blokada SWD) — wpływ na build/flash
 
-Pełny opis: [security/secure_debug_lock.md](security/secure_debug_lock.md).
+Pełny opis blokady, kluczy i trybów: [`secure_debug_lock.md`](secure_debug_lock.md). Pieczętowanie jest domyślnym krokiem 6 provisioningu (`provision_dongle.py`, pomijane przez `--no-lock`).
 
-Firmware produkcyjny blokuje własny port SWD za pomocą Secure Engine (bez potrzeby użycia J-Linka), przez nieszyfrowane RPC `0x60-0x63`.
-Strona hosta: `KeySec/keyadmin/scripts/secure_debug_lock.py` oraz sekcja menu konsoli administracyjnej *SECURE DEBUG LOCK*.
-
-1. **Raz na produkt (klucz wspólny dla całej produkcji):** `python KeySec/keyadmin/scripts/generate_debug_command_key.py` tworzy `KeySec/keyadmin/keys/debug_command_key.pem` (obok Root CA) i zapisuje klucz publiczny do `src/secure/debug_command_pubkey.h`. Przebuduj za pomocą `compile.bat`. Obecny klucz jest kluczem deweloperskim; przed właściwą produkcją wygeneruj nowe klucze.
-2. **Ochrona dongli deweloperskich:** `python KeySec/keyadmin/scripts/secure_debug_lock.py protect` dodaje podłączony dongle do `KeySec/keyadmin/keys/secure_debug/protected_devices.json`. Każda ścieżka blokowania (CLI, menu administracyjne, pieczętowanie w `provision_dongle.py`) odrzuca chronione numery seryjne, zanim cokolwiek zostanie wysłane do dongla.
-3. **Blokada:** `python KeySec/keyadmin/scripts/provision_dongle.py 365 3` (pieczętuje domyślnie) lub `python KeySec/keyadmin/scripts/secure_debug_lock.py lock`. Zapisuje publiczny Command Key do OTP (nieodwracalnie), włącza secure debug, nakłada blokadę i uzbraja OTP tamper. Kasowanie urządzenia (device erase) pozostaje dostępne.
-4. **Odblokowanie (do następnego resetu):** `python KeySec/keyadmin/scripts/secure_debug_lock.py unlock`, a następnie odczyt pamięci przez pyOCD w trybie attach (`-M attach`) bez resetowania dongla.
-
-Po zablokowaniu `flash.bat`, `set_factory_mode.bat` i `set_production_mode.bat` działają tylko bezpośrednio po odblokowaniu (reset na końcu wgrywania ponownie blokuje port).
-Dane poszczególnych dongli znajdują się w `KeySec/keyadmin/keys/secure_debug/devices/device_<SE serial>/` (`device.json` — historia STATUS/LOCK/UNLOCK — oraz zrzut logu tamper `userdata_dump.bin`). **Żaden materiał odblokowujący (certyfikat, token) nie jest zapisywany** — jest budowany w pamięci przy każdym odblokowaniu.
+Tu tylko konsekwencja dla narzędzi z `flashbat/`: **po zablokowaniu** `flash.bat`, `set_factory_mode.bat` i `set_production_mode.bat` działają wyłącznie bezpośrednio po odblokowaniu (`secure_debug_lock.py unlock`), bo reset na końcu wgrywania ponownie blokuje port. Kasowanie urządzenia (device erase) pozostaje dostępne zawsze.
 
 ---
 

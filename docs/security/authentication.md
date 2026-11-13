@@ -1,6 +1,6 @@
 # Compass Authentication, One Device per Account and the Dongle User Limit
 
-Moved here from `compass/_internal/agent/authentication.md` (2026-11-04). The code paths below are in the **compass** repository (`app/...`) unless they say otherwise. Related: [Active Users Limit Mechanism](users_limit_mechanism.md) (how the dongle counts users).
+Moved here from `compass/_internal/agent/authentication.md` (2026-11-04). The code paths below are in the **compass** repository (`app/...`) unless they say otherwise. Related: [Active Users Limit Mechanism](users-limit.md) (how the dongle counts users).
 
 ## Authentication (local email + password)
 

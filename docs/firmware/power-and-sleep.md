@@ -1,6 +1,6 @@
 # Zarządzanie energią i wykrywanie USB (uśpienie na baterii)
 
-> **Uwaga o trybie uśpienia (EM2/3):** Menedżer zasilania SDK (`sl_power_manager`) schodzi najniżej do **EM2**; samodzielnego EM3 ten projekt nie używa. Dokumentacja Silicon Labs nie określa jednoznacznie, w którym trybie układ faktycznie ląduje (sprzęt może zejść do poziomu EM3, gdy w uśpieniu nic nie taktuje LFRCO/LFXO), dlatego uśpienie oznaczamy tu jako **EM2/3**. Wartości ~1 µA i ULFRCO (1 kHz) odnoszą się do krańca EM3; na EM2 z LFRCO jest to ok. 2–3 µA. Szczegóły i pomiary: [`antitamper-casing-debate.md`](../antitamper-casing-debate.md).
+> **Uwaga o trybie uśpienia (EM2/3):** Menedżer zasilania SDK (`sl_power_manager`) schodzi najniżej do **EM2**; samodzielnego EM3 ten projekt nie używa. Dokumentacja Silicon Labs nie określa jednoznacznie, w którym trybie układ faktycznie ląduje (sprzęt może zejść do poziomu EM3, gdy w uśpieniu nic nie taktuje LFRCO/LFXO), dlatego uśpienie oznaczamy tu jako **EM2/3**. Wartości ~1 µA i ULFRCO (1 kHz) odnoszą się do krańca EM3; na EM2 z LFRCO jest to ok. 2–3 µA.
 
 ## Kontekst architektoniczny
 Układ EFR32MG24 nie ma wbudowanego sprzętowego kontrolera USB. Na płytkach deweloperskich Seeed Studio XIAO MG24 łączność USB zapewnia umieszczony na płytce koprocesor (SAMD11 / DAPLink CMSIS-DAP), który pełni rolę mostka USB-UART. EFR32MG24 komunikuje się z nim wyłącznie przez piny `PA08` (TX) i `PA09` (RX) z prędkością 921 600 bodów.

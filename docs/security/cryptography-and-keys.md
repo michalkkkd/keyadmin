@@ -1,6 +1,8 @@
-# Klucze: skąd się biorą i do czego służą
+# Kryptografia i klucze: skąd się biorą i do czego służą
 
-Ten dokument opisuje każdy klucz w systemie Compass + KeySec + KeyFirmware: kto go tworzy, kiedy, gdzie leży i do czego jest potrzebny. Stan zgodny z kodem z 2026-10-30.
+> **Kanon krypto/kluczy.** To jedyne miejsce opisujące każdy klucz, przepływ handshake i cykl życia kluczy przy provisioningu. Narzędzia build/flash/factory-mode opisuje osobno [`provisioning.md`](provisioning.md). Stan zgodny z kodem z 2026-10-30.
+
+Ten dokument opisuje każdy klucz w systemie Compass + KeySec + KeyFirmware: kto go tworzy, kiedy, gdzie leży i do czego jest potrzebny.
 
 Klucze dzielą się na trzy grupy:
 
@@ -12,6 +14,19 @@ Dwa pojęcia, które przewijają się dalej:
 
 * **Para kluczy do podpisu** (ECDSA P-256) składa się z klucza prywatnego i publicznego. Kluczem prywatnym się podpisuje i trzeba go trzymać w tajemnicy. Kluczem publicznym każdy może sprawdzić, czy podpis jest prawdziwy, więc nie musi być tajny.
 * **Klucz symetryczny** (AES) to jeden klucz, który służy i do szyfrowania, i do odszyfrowania. Obie strony muszą mieć ten sam.
+
+---
+
+## 0. Kanał komunikacji i szyfrowanie transportu
+
+Kanał między Compass (host) a donglem idzie przez wirtualny port szeregowy (VCOM/UART), który można podsłuchać programowym snifferem USB. Dlatego payloady są szyfrowane:
+
+* **Warstwa transportowa:** TinyFrame — binarne ramkowanie z integralnością (CRC32, `TF_CKSUM_CRC32`) i routingiem.
+* **Payload:** po nawiązaniu sesji wszystkie parametry i odpowiedzi są szyfrowane **AES-256-GCM z AAD** (AEAD — poufność + integralność). ChaCha20-Poly1305 **nie jest używane** w firmware.
+* **Wymiana klucza:** ECDH przy handshake ustala wspólny sekret (poufność, chroni przed podsłuchem). Szczegóły kluczy — §1 i §2, przebieg — §5.1.
+* **Anti-replay:** każdy pakiet niesie **monotoniczny licznik** (nonce = licznik LE | bajt kierunku | zera), więc nagranego polecenia nie da się wysłać ponownie.
+* **Anti-MitM:** tożsamość dongla podpisana przez Root CA (certyfikat w NVM3, weryfikowany przy handshake), a host uwierzytelnia się kluczem hosta — obie strony mają pewność, z kim rozmawiają.
+* **Akceleracja sprzętowa:** EFR32MG24 (Secure Vault) liczy AES bez obciążania CPU i z wysoką odpornością na ataki side-channel.
 
 ---
 
@@ -192,6 +207,8 @@ Po krokach 2, 3 i 4 firmware trzeba przebudować (`compile.bat`); po kroku 4 tak
 
 ## 4. Provisioning: `provision_dongle.py`
 
+> Ta sekcja opisuje **cykl życia kluczy** podczas provisioningu. Narzędzia, które pod spodem buduje i wgrywa (`compile.bat`, `set_factory_mode.bat`, `set_production_mode.bat`) — zob. [`provisioning.md`](provisioning.md).
+
 ```
 python keyadmin/scripts/provision_dongle.py [dni] [użytkownicy] [--no-lock]
 ```
@@ -256,7 +273,7 @@ Po kolei, prostymi słowami:
 3. Certyfikat dowodzi, że ten klucz tożsamości wystawiła nasza fabryka.
 4. Ze wspólnego sekretu powstają dwa klucze AES. Nimi szyfrowana jest cała dalsza rozmowa.
 
-Nowe klucze sesyjne powstają przy każdym połączeniu. Powstają też wtedy, gdy keycomm dostanie błąd sesji albo nie odszyfruje odpowiedzi (`protocol.py` robi wtedy ponowny handshake). Nie ma okresowej wymiany kluczy co minutę (oba dokumenty są tu zgodne — starszy `cryptography_flow_and_keys.md` również stwierdza brak rotacji w trakcie sesji).
+Nowe klucze sesyjne powstają przy każdym połączeniu. Powstają też wtedy, gdy keycomm dostanie błąd sesji albo nie odszyfruje odpowiedzi (`protocol.py` robi wtedy ponowny handshake). Nie ma okresowej wymiany kluczy co minutę ani rotacji w trakcie sesji.
 
 ### 5.2 Odblokowanie portu SWD (Secure Debug)
 
@@ -306,12 +323,12 @@ Obecne klucze w `keyadmin/keys/` to **klucze deweloperskie** i leżą w git. Prz
 
 ---
 
-## 8. Czym ten opis różni się od `cryptography_flow_and_keys.md`
+## 8. Szczegóły wdrożenia, które łatwo pomylić
 
-Starszy dokument opisuje plan, a nie obecny kod. Różnice:
+Cztery punkty, które w starszych planach projektowych bywały opisane inaczej — tu obowiązuje stan kodu:
 
-* **Klucz tożsamości owinięty PUF-em:** starszy dokument to zakładał, kod robi to od 2026-10-30 (`SL_PSA_KEY_LOCATION_WRAPPED` w `auth_manager.c`). Dongle provisionowane wcześniej mają klucz jawny do czasu ponownego provisioningu.
-* **Brak wymiany kluczy sesyjnych co minutę** (oba dokumenty są tu zgodne — to nie jest różnica). Nowy handshake jest tylko przy połączeniu i po błędzie. Jedną z przyczyn błędu jest wygaśnięcie sesji: dongle kończy ją sam po 5 minutach bez komend, a keycomm przy następnej komendzie robi nowy handshake.
+* **Klucz tożsamości owinięty PUF-em:** kod robi to od 2026-10-30 (`SL_PSA_KEY_LOCATION_WRAPPED` w `auth_manager.c`). Dongle provisionowane wcześniej mają klucz jawny do czasu ponownego provisioningu.
+* **Brak wymiany kluczy sesyjnych co minutę (brak rotacji w trakcie sesji).** Nowy handshake jest tylko przy połączeniu i po błędzie. Jedną z przyczyn błędu jest wygaśnięcie sesji: dongle kończy ją sam po 5 minutach bez komend, a keycomm przy następnej komendzie robi nowy handshake.
 * **Klucz publiczny Root CA nie jest wkompilowany w Compass.** To plik `root_ca_pub.pem` w `keys/` obok exe.
 * **Certyfikat to sam podpis Root CA** nad kluczem publicznym tożsamości, bez dodatkowych pól.
 
