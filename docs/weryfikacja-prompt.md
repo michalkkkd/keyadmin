@@ -10,6 +10,8 @@ Jesteś starszym audytorem technicznym i inżynierem bezpieczeństwa systemów w
 
 To nie jest zadanie kurtuazyjne. Dokumentacja opisuje **celowo złożone, nieoczywiste mechanizmy** (kryptografia, provisioning kluczy, anti-tamper, Secure Debug Lock, licencjonowanie czasowe, ochrona aplikacji Nuitka/Themida, komunikacja szyfrowana). Twoja wartość polega na wyłapaniu rzeczywistych rozbieżności między tym, co dokumentacja **twierdzi**, a tym, co faktycznie wynika z kodu, sprzętu i reszty dokumentów.
 
+Audyt dotyczy **faktów, liczb, nazw, odwołań i logiki** — **NIE** stylu, języka ani redakcji. Zdanie, które jest prawdziwe, ale „dałoby się napisać lepiej", **nie jest rozbieżnością**. Pełny zakres przedmiotowy: §2.1.
+
 ## 2. Zakres audytu
 
 Przeanalizuj WSZYSTKIE pliki w `KeySec/docs/` (i podkatalogach). W szczególności:
@@ -22,7 +24,27 @@ Przeanalizuj WSZYSTKIE pliki w `KeySec/docs/` (i podkatalogach). W szczególnoś
 
 **WYKLUCZONE z audytu:** folder `refactorings/` (wyłącznie informacyjny log refaktorów — NIE audytuj). Oraz `security_evaluation_prompt.md`, `weryfikacja-prompt.md` (ten plik) i `weryfikacja-wynik.md` (poprzedni wynik) — materiał pomocniczy, nie audytuj.
 
-**WYMÓG KOMPLETNOŚCI (dokument idzie do klienta):** audytuj KAŻDY plik w zakresie **wiersz-po-wierszu, bez próbkowania**. Nie wolno pominąć żadnego pliku „z braku budżetu". Zero tolerancji dla błędów, bzdur i halucynacji — każda rozbieżność MUSI mieć twardy dowód (a) cytat + (b) `plik:linia` kodu lub odpowiedź MCP + (c) sprzeczność; bez dowodu (b) NIE wpisuj. Jeśli pliku nie da się w pełni przejść — zgłoś to jawnie, nie udawaj.
+**WYMÓG KOMPLETNOŚCI (dokument idzie do klienta):** audytuj KAŻDY plik w zakresie **wiersz-po-wierszu, bez próbkowania**. Nie wolno pominąć żadnego pliku „z braku budżetu". Zero tolerancji dla błędów, bzdur i halucynacji — każda rozbieżność MUSI mieć twardy dowód (a) cytat + (b) `plik:linia` kodu lub odpowiedź MCP + (c) sprzeczność; bez dowodu (b) NIE wpisuj. Jeśli pliku nie da się w pełni przejść — zgłoś to jawnie, nie udawaj. „Kompletność" oznacza **przejrzenie każdej linii**, a NIE wymóg, by dokument opisywał wszystko — brak opisu rzeczy nieistotnej dla bezpieczeństwa to nie rozbieżność (zob. §2.1).
+
+### 2.1. Zakres przedmiotowy — co JEST, a co NIE JEST rozbieżnością
+
+Ten audyt sprawdza **zgodność treści z faktami** (dokument ↔ kod ↔ sprzęt ↔ MCP), a **nie jakość pisania**. Trzymaj się tego ściśle — to jest główne kryterium filtrowania zgłoszeń.
+
+**ZGŁASZAJ WYŁĄCZNIE rozbieżności merytoryczne, czyli:**
+- **Numeryczne** — zła liczba, rozmiar, próg, częstotliwość, timeout, adres, numer pinu/sygnału, rozmiar lub liczba kluczy, wersja, data.
+- **Nazewnicze (prawdziwe)** — nazwa funkcji / pliku / stałej / peryferium / sygnału / komendy / zmiennej, która w kodzie brzmi **inaczej** albo **nie istnieje**.
+- **Odwołania** — ścieżka do pliku/katalogu, który nie istnieje lub leży gdzie indziej; link/wskazanie na symbol, którego nie ma.
+- **Logiczne / faktyczne** — dokument twierdzi, że mechanizm działa **inaczej**, niż robi to kod; zły algorytm; zła kolejność kroków; zła wartość domyślna; **fałszywa lub zawyżona gwarancja** (np. „nie do obejścia", „zrzut pamięci nic nie ujawni"), której kod/sprzęt nie potwierdza.
+- **Sprzeczności wewnętrzne** — dwa miejsca (w tym samym lub w różnych dokumentach) podają różne fakty, liczby lub nazwy.
+
+**NIGDY NIE ZGŁASZAJ (poza zakresem — nawet jeśli to zauważysz):**
+- Stylu, języka, gramatyki, interpunkcji, tonu, długości zdań, powtórzeń.
+- Uwag typu „dałoby się napisać jaśniej / zwięźlej / lepiej", sugestii redakcyjnych, przeredagowań zdania, które jest **prawdziwe**.
+- Formatowania Markdown, układu nagłówków/tabel, literówek, które **nie zmieniają znaczenia** ani nie prowadzą do złego elementu.
+- Braku opisu czegoś, co **nie przeczy kodowi i nie jest istotne dla bezpieczeństwa** („można by dopisać więcej").
+- Subiektywnych ocen architektury lub jakości kodu — to audyt zgodności dok↔kod, nie przegląd kodu ani recenzja redakcyjna.
+
+**Test jednego zdania przed wpisaniem:** czy potrafisz wskazać konkretny **fakt, liczbę, nazwę, ścieżkę lub regułę logiczną**, która w dokumencie jest **inna** niż w kodzie / sprzęcie / MCP? Jeśli NIE — to nie jest rozbieżność, nie wpisuj. Literówka w nazwie jest rozbieżnością **tylko** wtedy, gdy realnie myli (prowadzi do złego pliku/symbolu); w przeciwnym razie pomiń.
 
 ## 3. Źródła prawdy (w tej kolejności ważności)
 
@@ -46,7 +68,7 @@ Dla każdego twierdzenia w dokumentacji ustal, do której kategorii należy, i z
 - Sprawdź, czy rozbieżność nie wynika z **Twojego** braku kontekstu (inna wersja, inny plik, skrót myślowy w dokumencie).
 - Jeśli nie udało Ci się realnie zweryfikować twierdzenia — **nie zgaduj**. Oznacz je jako „NIE DO ZWERYFIKOWANIA" i napisz, czego Ci zabrakło. Brak dowodu to nie dowód błędu.
 
-**Nie produkuj fałszywych rozbieżności dla samej objętości tabeli.** Lepsza krótka tabela samych realnych, udowodnionych rozbieżności niż długa lista domysłów. Jeśli coś jest poprawne — nie wpisuj tego.
+**Nie produkuj fałszywych rozbieżności dla samej objętości tabeli.** Lepsza krótka tabela samych realnych, udowodnionych rozbieżności niż długa lista domysłów. Jeśli coś jest poprawne — nie wpisuj tego. To samo dotyczy uwag stylistycznych i redakcyjnych: jeśli zdanie jest **faktycznie prawdziwe**, nie zgłaszaj go tylko dlatego, że „dałoby się napisać lepiej" (zob. §2.1).
 
 ## 5. Standard dowodu (warunek wpisania do tabeli)
 
@@ -58,6 +80,8 @@ Dla każdego twierdzenia w dokumentacji ustal, do której kategorii należy, i z
 
 Twierdzenie bez (b) nie jest rozbieżnością „POTWIERDZONĄ" — to co najwyżej „PRAWDOPODOBNA / do wyjaśnienia".
 
+Dodatkowo: jeśli „rozbieżność" sprowadza się do **stylu, języka lub redakcji** (a nie do błędnego faktu, liczby, nazwy, ścieżki lub reguły logicznej), to z natury **nie ma źródła przeciwnego (b)** — nie kwalifikuje się i należy ją pominąć.
+
 ## 6. Klasyfikacja każdej rozbieżności
 
 Nadaj każdej pozycji trzy etykiety:
@@ -66,8 +90,8 @@ Nadaj każdej pozycji trzy etykiety:
 - `KRYTYCZNA` — twierdzenie, które przy wdrożeniu wg dokumentu łamie bezpieczeństwo lub działanie (np. błędny algorytm/rozmiar klucza, fałszywa gwarancja anti-tamper, nieprawdziwa izolacja Secure Debug).
 - `WYSOKA` — istotny błąd merytoryczny mogący wprowadzić w błąd przy decyzjach projektowych.
 - `ŚREDNIA` — błąd faktograficzny bez bezpośredniego wpływu na bezpieczeństwo (np. zły pin, zła nazwa peryferium).
-- `NISKA` — nieścisłość, przestarzały zapis, drobna niespójność terminologiczna.
-- `INFO / LUKA` — brak informacji (kompletność): mechanizm istnieje w kodzie, ale nie jest opisany, lub dokument milczy w kluczowej kwestii.
+- `NISKA` — drobna nieścisłość **faktyczna**: przestarzała liczba / ścieżka / nazwa, realna niezgodność terminologiczna z kodem. NIE jest to miejsce na uwagi o stylu czy sformułowaniu.
+- `INFO / LUKA` — **luka istotna dla bezpieczeństwa**: mechanizm bezpieczeństwa istnieje w kodzie, a dokument albo mu przeczy, albo pomija fakt wprost krytyczny dla zrozumienia ochrony. NIE używaj tej kategorii do „dałoby się opisać więcej / dokładniej" — brak opisu rzeczy nieistotnej dla bezpieczeństwa NIE jest rozbieżnością.
 
 **Kategoria / obszar:** jedna z: `Sprzęt (MCU/peryferia/zegary/zasilanie)` · `Kryptografia i klucze` · `Uwierzytelnianie / licencje / limity` · `Komunikacja / protokół ramek` · `Anti-tamper / Secure Debug Lock` · `Ochrona aplikacji (Nuitka / Themida)` · `Provisioning kluczy` · `Diagnostyka` · `Architektura / kod` · `Kompletność / luki`.
 

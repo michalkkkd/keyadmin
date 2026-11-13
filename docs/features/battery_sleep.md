@@ -80,7 +80,7 @@ Aby zagwarantować stabilność wysokoprzepustowej komunikacji UART przy 921 600
 * **Ścisła izolacja przerwań**:
   - W EM0 i EM1 zewnętrzne przerwanie GPIO na PA09 jest **bezwzględnie wyłączone** (`sl_gpio_disable_interrupts(1 << rx_wakeup_int_no)`).
   - Przerwanie GPIO jest włączane **wyłącznie** przy przejściu do EM2/3.
-  - Gdy PC wyśle bajt wybudzający (zbocze narastające na RX, który w uśpieniu jest ściągany do masy), wywoływany jest `rx_wakeup_callback`, który **natychmiast wyłącza przerwanie GPIO**, ponownie ustawia `SL_POWER_MANAGER_EM1` i zwraca `SL_POWER_MANAGER_WAKEUP`.
+  - Gdy PC wyśle bajt wybudzający (zbocze narastające na RX, który w uśpieniu jest ściągany do masy), wywoływany jest `rx_wakeup_callback`, który **natychmiast wyłącza przerwanie GPIO**, ponownie ustawia wymaganie `SL_POWER_MANAGER_EM1` (callback jest typu `void`, `app.c:188`); Power Manager utrzymuje MCU wybudzony przy wyjściu z ISR dzięki przywróconemu wymaganiu EM1.
   - Wszystkie kolejne bajty danych są przetwarzane wyłącznie przez sprzętowy EUSART i DMA, bez żadnej ingerencji przerwań GPIO.
 
 ### 3. Wstrzymywanie i wznawianie heartbeatu po stronie PC

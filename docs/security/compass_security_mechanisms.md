@@ -14,7 +14,7 @@ Architektura bezpieczeństwa systemu Compass opiera się na **modelu zerowego za
 2. **Fizyczna, środowiskowa i logiczna ochrona antysabotażowa (TamperManager):** Scentralizowany system zarządzania naruszeniami (**TamperManager**), zliczający incydenty według 10 kategorii (fizyczne krańcówki GPIO C5/C0, naruszenia protokołu VRX, sensory skrajnych temperatur próbkowane co 5s, detektory spadku napięcia BOD, anomalii oscylatora HFXO oraz impulsów EMP). System nadzoruje progi naruszeń, po przekroczeniu których uruchamiana jest procedura autodestrukcji i wymazywania kodu źródłowego programu z pamięci RAM (Flash Code Zeroization), przy jednoczesnym utrwaleniu zaszyfrowanego logu zdarzeń (AES-128) na stronie User Data (0x0FE00000, nienaruszanej przez device erase) do późniejszej analizy śledczej przez interfejs SWD.
 3. **Bezpieczny kanał komunikacyjny (Szyfrowany Transport RPC):** Wzajemne uwierzytelnienie: dongle wobec Compass przez PKI (Root CA), Compass wobec dongla kluczem hosta (`XRouter._HOST_KEY`), efemeryczna wymiana kluczy ECDHE (krzywa NIST P-256) gwarantująca idealną poufność w przód (Perfect Forward Secrecy - PFS), unikalne dwukierunkowe klucze sesyjne wyprowadzane przez HKDF-SHA256, szyfrowanie symetryczne AES-256-GCM (AEAD, z typem komendy i statusem OK/ERR jako AAD; błędy po nawiązaniu sesji też są szyfrowane) oraz ochrona przed atakami powtórzeniowymi (replay attack) za pomocą ścisłych liczników monotonicznych.
 4. **Wyniesienie logiki biznesowej i prekompilacja kodu:** Całkowite usunięcie krytycznych algorytmów farmakokinetycznych ze środowiska Python na hoście. Przeniesienie kluczowych funkcji bezpośrednio do firmware'u mikrokontrolera oraz przepisanie ciężkich procedur numerycznych na natywne biblioteki C++ i prekompilowane moduły Clang.
-5. **Wirtualizacja i utwardzenie binarne (Nuitka Commercial + Oreans Themida):** Kompilacja kodu Python bezpośrednio do natywnego kodu maszynowego C/C++ (usuwająca w 100% kod bajtowy `.pyc`), szyfrowanie ciągów znaków i stałych, zaciemnianie śladów stosu (traceback encryption) oraz opancerzenie pliku wykonywalnego silnikiem Themida (ochrona przed debugerami, zrzutami pamięci RAM, środowiskami wirtualnymi i wirtualizacja instrukcji procesora).
+5. **Wirtualizacja i utwardzenie binarne (Nuitka Commercial + Oreans Themida):** Kompilacja kodu Python bezpośrednio do natywnego kodu maszynowego C/C++ (usuwająca w 100% kod bajtowy `.pyc`), szyfrowanie ciągów znaków (Themida) oraz opancerzenie pliku wykonywalnego silnikiem Themida (ochrona przed debugerami i zrzutami pamięci RAM, wirtualizacja oznaczonych regionów kodu). *(Uwaga: szyfrowanie stałych (`data-hiding`), traceback encryption i Anti-VM są w bieżącym buildzie **WYŁĄCZONE** — do przywrócenia przed produkcją; zob. §4.1.)*
 
 ---
 
@@ -32,7 +32,7 @@ flowchart TD
             PUF["Krzemowy PUF (Physically Unclonable Function) [AKTYWNE - klucz tożsamości]"]
             TRNG["Sprzętowy Generator TRNG (NIST SP 800-90A/B/C) [AKTYWNE - 100%]"]
             DPA["Koprocesor Krypto z Maskowaniem DPA [AKTYWNE SPRZĘTOWO - 100%]"]
-            AT_MOD["Sprzętowy Moduł OTP Anti-Tamper (EMPGD/SUPGD -> filtr -> reset) [AKTYWNE w provisioningu produkcyjnym --lock; plytki dev nieuzbrojone]"]
+            AT_MOD["Sprzętowy Moduł OTP Anti-Tamper (EMPGD/SUPGD -> filtr -> reset) [AKTYWNE w produkcji: domyslny seal, --no-lock pomija; plytki dev nieuzbrojone]"]
         end
 
         subgraph APP_CORE["Główny Rdzeń Aplikacji (ARM Cortex-M33)"]
@@ -73,7 +73,7 @@ flowchart TD
 
 #### 5. Sensory Anomalii Zasilania (Voltage Glitch Detectors) — `[Aktywne: OTP uzbrojone (SE 18) + software log-only]`
 * **Opis sprzętowy:** Sprzętowy detektor skoków/zapadów napięcia zasilania Secure Engine (**supply glitch detector**, sygnał tamper SE **18** `SL_SE_TAMPER_ATAMPDET_SUPGD` w `sl_se_manager_defines.h`, numeracja S2C4 dla MG24). Uwaga: nazwy `VGLITCHFALLING`/`VGLITCHRISING` pochodzą z EFR32xG21 i **nie** dotyczą MG24. Wykrywa mikrosekundowe zaburzenia zasilania (fault injection).
-* **Stan w projekcie:** Sygnał SE 18 (SUPGD) jest **uzbrojony w OTP** na filtr→licznik→reset ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) **na donglach provisionowanych produkcyjnie (`provision_dongle --lock`); płytki deweloperskie pozostają nieuzbrojone** (`tamper_manager.c`: „Not configured on our dongles yet”). Programowy detektor rejestrów BOD (`tamper_manager_process()` czyta `EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)` → `tamper_manager_detected()`) jest **tylko-log** (próg `0xFFFFFFFF`, nigdy nie kasuje) — fałszywie wzbudza się przy wpięciu USB / inrush, a realny szybki glitch łapie uzbrojony SE 18.
+* **Stan w projekcie:** Sygnał SE 18 (SUPGD) jest **uzbrojony w OTP** na filtr→licznik→reset ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) **na donglach provisionowanych produkcyjnie (domyślny seal `provision_dongle.py`; pomijany przez `--no-lock`); płytki deweloperskie pozostają nieuzbrojone** (`tamper_manager.c`: „Not configured on our dongles yet”). Programowy detektor rejestrów BOD (`tamper_manager_process()` czyta `EMU->IF & (EMU_IF_AVDDBOD | EMU_IF_IOVDD0BOD)` → `tamper_manager_detected()`) jest **tylko-log** (próg `0xFFFFFFFF`, nigdy nie kasuje) — fałszywie wzbudza się przy wpięciu USB / inrush, a realny szybki glitch łapie uzbrojony SE 18.
 
 #### 6. Detektor Zakłóceń Zegara i Logiki Cyfrowej (digital/EMP glitch detector, sygnał SE **17** `SL_SE_TAMPER_ATAMPDET_EMPGD`) — `[Aktywne: OTP uzbrojone (SE 17) + software log-only]`
 * **Opis sprzętowy:** Wbudowany układ monitorujący stabilność wewnętrznych generatorów taktujących i wykrywający asynchroniczne szpilki zegarowe (clock glitching).
@@ -413,7 +413,7 @@ W celu oznaczenia i profilowania fragmentów kodu przeznaczonych do wirtualizacj
 flowchart LR
     PY[Pliki Źródłowe Python app/ oraz core/] --> NUITKA[Kompilator Nuitka Commercial v4.3]
     NUITKA --> CCODE[Wygenerowany Kod Maszynowy C/C++]
-    NUITKA --> NP[Wtyczki Komercyjne Nuitka\nData-Hiding, Traceback-Enc,\nAnti-Debugger]
+    NUITKA --> NP[Integracja Themida + markery VM\nData-Hiding / Traceback-Enc / Anti-Debugger:\nWYLACZONE do testow]
     CCODE --> MSVC[Kompilator MSVC 64-bit cl.exe]
     MSVC --> PE[Natywny Plik Wykonywalny Windows PE]
     PE --> THEMIDA[Pancerz Ochronny Oreans Themida]
@@ -423,28 +423,30 @@ flowchart LR
 ### 4.1 Flagi i Wtyczki Nuitka Commercial
 * **Podstawowy tryb kompilacji:** `--mode=standalone`, `--msvc=latest`, `--lto=no`, `--windows-console-mode=force`.
 * **Całkowita eliminacja kodu bajtowego:** Nuitka dokonuje pełnego tłumaczenia kodu Python na kod źródłowy języka C, który zostaje skompilowany kompilatorem Microsoft Visual C++ do binarnego kodu x86_64. Standardowe narzędzia do dekompilacji Pythona (np. `uncompyle6`, `pyinstxtractor`, `decompyle++`) są w 100% bezużyteczne.
-* **Aktywne komercyjne wtyczki bezpieczeństwa:**
+* **Aktywne wtyczki/flagi bezpieczeństwa (bieżący `build-nuitka-comm-themida.ps1`):**
   1. `--enable-plugin=themida`: Bezpośrednia, zautomatyzowana integracja z silnikiem Oreans Themida.
   2. `--themida-entrypoint-obfuscation`: Zaciemnianie i szyfrowanie punktu wejścia procesu (Entry Point).
   3. `--themida-antipatching`: Generowanie sum kontrolnych w pamięci RAM uniemożliwiających modyfikację instrukcji w locie (inline patching).
-  4. `--themida-sandbox-monitors`: Blokowanie uruchamiania programu w monitorowanych piaskownicach i emulatorach analitycznych.
-  5. `--themida-encrypt-strings`: Szyfrowanie wszystkich ciągów tekstowych (napisów) w całej aplikacji.
-  6. `--themida-advanced-option=OPTION_MACROS_INTEGRITY_CHECKS=true`: Weryfikacja integralności makr wirtualizacji.
-  7. `--enable-plugin=data-hiding` z parametrem `--data-hiding-salt-value=$BuildSalt`: Szyfrowanie wewnętrznych struktur danych z unikalną solą losowaną przy każdym budowaniu (`[System.Guid]::NewGuid()`), uniemożliwiające analizę różnicową między wersjami.
-  8. `--enable-plugin=traceback-encryption` z parametrem `--obfuscate-line-numbers=encrypted`: Szyfrowanie śladów stosu (moduły `__dejong__`, `n_crypt`, `n_tb`), dzięki czemu żaden błąd nie ujawni struktury kodu ani numerów linii.
-  9. `--enable-plugin=anti-debugger`: Wstrzykiwanie niskopoziomowych procedur wykrywających debugery.
-* **Flagi utwardzania środowiska wykonawczego Pythona:**
+  4. `--themida-encrypt-strings`: Szyfrowanie ciągów tekstowych (dekodowane w RAM w czasie działania).
+  5. `--themida-advanced-option=OPTION_MACROS_INTEGRITY_CHECKS=true`: Weryfikacja integralności makr wirtualizacji.
+  6. `--user-plugin=...\build_plugins\vm_marker_plugin.py` (rodzina VM `VM_FISH_WHITE`): wirtualizacja Themidy **wyłącznie dla oznaczonych regionów** `marker.start()/end()`.
+  7. `--experimental=debug-report-traceback`: raport traceback przy błędach budowania.
+* **WYŁĄCZONE do testów — przywrócić przed produkcją** (zob. [`themida_nuitka_hardening.md`](themida_nuitka_hardening.md)). Tych flag **nie ma** w bieżącym skrypcie buildu:
+  * `--themida-sandbox-monitors` (Anti-VM / blokowanie piaskownic — kolizja z Windows 11 VBS/Hyper-V).
+  * `--enable-plugin=data-hiding` (+ `--data-hiding-salt-value`): szyfrowanie stałych. **Wyłączone** — stałe mogą być widoczne w zrzucie RAM.
+  * `--enable-plugin=traceback-encryption` (+ `--obfuscate-line-numbers=encrypted`): szyfrowanie śladów stosu.
+  * `--enable-plugin=anti-debugger` (plugin **Nuitki**). Anti-debug zapewnia natomiast silnik **Themidy** (zob. §4.2).
+* **Flagi utwardzania środowiska wykonawczego Pythona (bieżący build):**
   * `--python-flag=isolated`: Pełna izolacja procesu od zmiennych środowiskowych systemu (`PYTHONPATH`, `PYTHONHOME`).
   * `--python-flag=no_docstrings`: Całkowite wycięcie ciągów dokumentacyjnych funkcji z pamięci.
   * `--python-flag=no_asserts`: Usunięcie instrukcji asercji i metadanych.
-  * `--python-flag=no_annotations`: Wyczyszczenie adnotacji typów z kodu.
-  * `--private-import-patterns=app.frontend.*`: Ograniczenie widoczności symboli wewnętrznych.
+  * (Uwaga: `--python-flag=no_annotations` oraz `--private-import-patterns=app.frontend.*` **nie są** obecnie w buildzie.)
 
 ### 4.2 Pakiet Ochronny Oreans Themida
 Wygenerowany plik wykonywalny podlega opancerzeniu przez silnik Oreans Themida ([`$ThemidaDir`](../../../compass/build-nuitka-comm-themida.ps1#L38)):
 * **Zaawansowany Anti-Debugger:** Wykrywanie debugerów poziomu użytkownika i jądra systemu (Ring-3 i Ring-0: x64dbg, OllyDbg, IDA Pro, WinDbg, Cheat Engine).
 * **Anti-Memory Dump:** Blokowanie narzędzi zrzucających proces z pamięci RAM (np. Scylla, Process Dumper).
-* **Anti-VM / Anti-Analysis:** Wykrywanie środowisk wirtualnych (VMware, VirtualBox, Hyper-V, QEMU, KVM) oraz piaskownic analitycznych.
+* **Anti-VM / Anti-Analysis — WYŁĄCZONE w bieżącym buildzie:** `--themida-sandbox-monitors` jest celowo pominięte (kolizja z Windows 11 VBS/Hyper-V); do przywrócenia przed produkcją. Docelowo: wykrywanie środowisk wirtualnych (VMware, VirtualBox, Hyper-V, QEMU, KVM) i piaskownic.
 * **Wirtualizacja instrukcji procesora (Code Virtualization):** Kluczowe fragmenty kodu asemblera x86_64 są zastępowane przez losowy, niestosujący architektury x86 kod bajtowy, interpretowany w locie przez polimorficzną maszynę wirtualną Themidy. Zdeasemblowanie takiego bloku w narzędziach typu IDA / Ghidra daje nieczytelny ciąg wewnętrznych instrukcji interpretera.
 
 ---
@@ -482,8 +484,8 @@ Wygenerowany plik wykonywalny podlega opancerzeniu przez silnik Oreans Themida (
 | **Natywny C++** | Biblioteka `safe_space_calc.dll` | [`compass/app/level_builder/safe_space_calc.cpp`](../../../compass/app/level_builder/safe_space_calc.cpp) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; kompletne obliczenia bezpiecznej przestrzeni w C++, flaga `SAFE_SPACE_CALC_ALGO = 2`. |
 | **Kompilacja Clang / Rozszerzenie C** | Prekompilowane Modele PK_18, 19, 22, V | [`compass/app/frontend/compass_models_bridge.pyd`](../../../compass/app/frontend/compass_models_bridge.pyd) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; prekompilowane wskaźniki funkcji C przekazywane bezpośrednio do integratora LSODA bez udziału Pythona. |
 | **Wirtualizacja Aplikacji** | Profilowanie markerów Themida VM | [`compass/app/level_x/marker.py`](../../../compass/app/level_x/marker.py) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; weryfikacja reguł maszyny wirtualnej Themida (zakaz zagnieżdżania, ten sam zasięg, zakaz wywołań projektu). |
-| **Ochrona Binarna** | Potok Nuitka Commercial | [`compass/build-nuitka-comm-themida.ps1`](../../../compass/build-nuitka-comm-themida.ps1#L70-L170) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; eliminacja kodu bajtowego, wtyczki data-hiding, string encryption, traceback encryption, anti-debugger. |
-| **Ochrona Binarna** | Pancerz Oreans Themida | [`compass/build-nuitka-comm-themida.ps1`](../../../compass/build-nuitka-comm-themida.ps1#L80-L87) | **`[100% - W pełni aktywne]`** | W 100% zaimplementowane; anti-dump, anti-debugger, anti-VM, zaciemnianie punktu wejścia i wirtualizacja kodu maszynowego. |
+| **Ochrona Binarna** | Potok Nuitka Commercial | [`compass/build-nuitka-comm-themida.ps1`](../../../compass/build-nuitka-comm-themida.ps1) | **`[Aktywny potok; część wtyczek wyłączona do testów]`** | Eliminacja kodu bajtowego (standalone) aktywna; szyfrowanie stringów przez Themidę. Wtyczki Nuitki **data-hiding, traceback-encryption, anti-debugger są obecnie WYŁĄCZONE** (do przywrócenia przed produkcją — zob. §4.1 i [`themida_nuitka_hardening.md`](themida_nuitka_hardening.md)). |
+| **Ochrona Binarna** | Pancerz Oreans Themida | [`compass/build-nuitka-comm-themida.ps1`](../../../compass/build-nuitka-comm-themida.ps1) | **`[Aktywny; Anti-VM wyłączone do testów]`** | Aktywne: anti-dump, anti-debugger (silnik Themidy), zaciemnianie punktu wejścia, wirtualizacja oznaczonych regionów. **Anti-VM (`--themida-sandbox-monitors`) obecnie WYŁĄCZONE** (Win11 VBS/Hyper-V). |
 
 ---
 
