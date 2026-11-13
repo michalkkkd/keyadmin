@@ -16,16 +16,56 @@
     {
       "timestamp": "2026-11-12T10:22:12+00:00",
       "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T05:51:19+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T05:51:19+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T05:51:19+00:00",
+      "event": "LOCK",
+      "response": "OK: Secure debug lock applied",
+      "success": true
+    },
+    {
+      "timestamp": "2026-11-13T06:10:52+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T06:10:52+00:00",
+      "event": "UNLOCK",
+      "challenge": "C2AB8E43824F45743EB869A37497D3D2",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
+    },
+    {
+      "timestamp": "2026-11-13T06:30:15+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T06:46:51+00:00",
+      "event": "STATUS"
+    },
+    {
+      "timestamp": "2026-11-13T06:46:51+00:00",
+      "event": "UNLOCK",
+      "challenge": "C2AB8E43824F45743EB869A37497D3D2",
+      "response": "OK: Debug port unlocked until next reset",
+      "success": true
     }
   ],
   "usb_port": "COM7",
   "last_status": {
     "serial": "0000000000000000880F62FFFE3E32FE",
-    "command_key": "NONE",
+    "command_key": "MATCH",
     "builtin_key_present": true,
-    "secure_debug_enabled": false,
-    "lock_applied": false,
-    "lock_active": false,
+    "secure_debug_enabled": true,
+    "lock_applied": true,
+    "lock_active": true,
     "device_erase_enabled": true
   }
 }

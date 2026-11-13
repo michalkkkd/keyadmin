@@ -23,6 +23,9 @@ from keyadmin.core.constants import (
     MSG_DEBUG_LOCK_APPLY,
     MSG_DEBUG_LOCK_CHALLENGE,
     MSG_DEBUG_LOCK_UNLOCK,
+    MSG_TAMPER_OTP_STATUS,
+    MSG_TAMPER_OTP_ARM,
+    TAMPER_OTP_LOCK_TIMEOUT_SEC,
     SDL_LOCK_TIMEOUT_SEC,
     SDL_LOCK_MAX_RETRIES,
     SDL_UNLOCK_TIMEOUT_SEC,
@@ -102,6 +105,15 @@ class AdminApi:
 
     def open_debug_port(self, unlock_token: bytes) -> str:
         return self.rpc.execute_command(MSG_DEBUG_LOCK_UNLOCK, unlock_token, timeout_sec=SDL_UNLOCK_TIMEOUT_SEC)
+
+    def get_tamper_otp_status(self) -> str:
+        """Reads the Secure Engine OTP tamper configuration (never writes).
+        Response: OTP_INIT:x;SECURE_BOOT:x;EMPGD:n;SUPGD:n;FILTER_CNT:n;RESET_THRESH:n."""
+        return self.rpc.execute_command(MSG_TAMPER_OTP_STATUS)
+
+    def arm_tamper_otp(self) -> str:
+        """IRREVERSIBLE: commits the SE tamper levels + secure-boot=OFF to OTP. Succeeds only once per device."""
+        return self.rpc.execute_command(MSG_TAMPER_OTP_ARM, timeout_sec=TAMPER_OTP_LOCK_TIMEOUT_SEC)
 
     def print_all_logs(self):
         try:

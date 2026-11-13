@@ -25,6 +25,11 @@ MSG_DEBUG_LOCK_APPLY     = 0x61
 MSG_DEBUG_LOCK_CHALLENGE = 0x62
 MSG_DEBUG_LOCK_UNLOCK    = 0x63
 
+# Secure Engine OTP tamper-arming Command IDs (plaintext). ARM is IRREVERSIBLE and also freezes
+# the secure-boot decision (OFF); restricted to production provisioning (provision_dongle --lock).
+MSG_TAMPER_OTP_STATUS    = 0x64
+MSG_TAMPER_OTP_ARM       = 0x65
+
 # Action Item IDs
 ACTION_SYS_HEALTH      = 1
 ACTION_MEMORY_NVM      = 2
@@ -358,6 +363,12 @@ PROV_PORT_POLL_SEC            = 0.5
 PROV_SETTLE_SEC               = 3.0
 PROV_ATTEMPTS                 = 5
 PROV_RETRY_DELAY_SEC          = 2.0
+# Keep-awake during flash: the dongle sleeps in EM2 (debug clock stopped), so pyOCD's SWD connect gets
+# "No ACK". We hold it awake over COM (keycomm heartbeat, a separate USB interface from CMSIS-DAP) while the
+# flash .bat runs pyOCD. Best-effort: if the port can't be opened, we flash anyway (the dongle may be awake).
+PROV_AWAKE_SETTLE_SEC         = 4.0
+PROV_MSG_AWAKE_HOLDING_FMT    = "[*] Holding dongle awake on {port} (heartbeat) during flash..."
+PROV_MSG_AWAKE_UNAVAILABLE_FMT = "[!] Keep-awake unavailable ({error}); flashing anyway (dongle may be awake)."
 
 PROV_BANNER                   = "=== KEYSEC FACTORY PROVISIONING PIPELINE ==="
 PROV_MSG_PLAN_FMT             = "License: {days} days | Max users: {users} | Compile: {compile} | Flash: {flash} | Debug lock: {lock}"
@@ -390,9 +401,28 @@ PROV_MSG_SECURE_SESSION       = "[+] Secure ECDHE session established."
 PROV_MSG_VERIFY_LICENSE_FMT   = "[+] License check: {result}"
 PROV_MSG_VERIFY_ALG1_FMT      = "[+] Algorithm 1 ({a} + {b}): {result}"
 PROV_MSG_VERIFY_ADMIN_FMT     = "[+] Admin command rejected by production firmware: {result}"
-PROV_MSG_LOCK_SKIPPED         = "[=] Secure Debug Lock skipped (enable with --lock)."
+PROV_MSG_LOCK_SKIPPED         = "[=] Secure Debug Lock + OTP tamper seal skipped (--no-lock set; SWD left open)."
 PROV_MSG_SUCCESS              = "[+] SUCCESS: dongle provisioned, sealed and verified."
 PROV_MSG_SUCCESS_LOCKED       = "[+] SUCCESS: dongle provisioned, sealed, verified and debug-locked."
+
+# Secure Engine OTP tamper arming (runs inside the --lock production seal; irreversible, once per device)
+TAMPER_OTP_LOCK_TIMEOUT_SEC   = 8.0
+TAMPER_OTP_CONFIRM_WORD       = "ARM"
+TAMPER_OTP_WARNING = (
+    "WARNING: This commits the Secure Engine tamper configuration to OTP (IRREVERSIBLE, once per device)\n"
+    "and in the SAME write permanently freezes secure boot = OFF (our deliberate decision).\n"
+    "Config: glitch detectors (EMPGD/SUPGD) -> filter -> reset; mailbox/DCI/TRNG -> interrupt; no OTP-erase;\n"
+    "SE never auto-halts (reset threshold 0). After this it can never be changed on this chip."
+)
+TAMPER_OTP_PROMPT_CONFIRM_FMT = "Type {word} to confirm the IRREVERSIBLE OTP tamper arming: "
+PROV_STEP_TAMPER_OTP          = "Arm Secure Engine OTP tamper configuration (irreversible)"
+PROV_MSG_TAMPER_OTP_STATUS_FMT = "[*] SE OTP tamper status: {status}"
+PROV_MSG_TAMPER_OTP_SKIPPED   = "[=] SE OTP tamper arming skipped (--no-lock set)."
+PROV_MSG_TAMPER_OTP_ALREADY   = "[=] SE OTP tamper configuration already armed on this dongle."
+PROV_MSG_TAMPER_OTP_OK        = "[+] SE OTP tamper configuration armed and verified."
+PROV_ERR_TAMPER_OTP_FMT       = "SE OTP tamper arming failed: {response}"
+PROV_ERR_TAMPER_OTP_ABORTED   = "SE OTP tamper arming aborted by user."
+PROV_MSG_SUCCESS_LOCKED_ARMED = "[+] SUCCESS: dongle provisioned, sealed, verified, debug-locked and tamper-armed."
 PROV_MSG_MENU_WARNING         = (
     "WARNING: This reflashes the connected dongle and generates a NEW identity, certificate and license.\n"
     "Any existing license on this dongle is lost. The admin connection is closed and reopened afterwards."
@@ -457,7 +487,7 @@ PROV_DETAIL_TOOLCHAIN_FMT     = "python '{python}', 1 debug probe"
 PROV_DETAIL_DONGLE_FMT        = "{port}, serial {serial}, SWD locked: {locked}, protected: {protected}"
 PROV_DETAIL_DONGLE_NO_STATUS_FMT = "{port}, no debug-lock status ({error}); blank or old firmware, flashing will tell"
 PROV_DETAIL_LOCK_KEY_FMT      = "debug_command_pubkey.h matches {path}"
-PROV_DETAIL_NOT_NEEDED        = "not needed (no --lock)"
+PROV_DETAIL_NOT_NEEDED        = "not needed (--no-lock)"
 PROV_MSG_CHECK_ONLY           = "[+] Preflight passed. Nothing was changed (--check)."
 PROV_HINT_FLASH_FAILED        = ("Hint: unplug and replug the dongle (pyOCD can leave the MCU halted), close any app using the "
                                  "COM port, then run the pipeline again.")

@@ -91,9 +91,10 @@ flowchart TD
 * **Opis sprzętowy:** Możliwość permanentnego, fizycznego wykasowania kodu źródłowego programu z pamięci Flash oraz danych krypto, uniemożliwiająca inżynierię wsteczną, z jednoczesnym utrwaleniem zaszyfrowanego logu zdarzeń.
 * **Stan w projekcie:** **`[AKTYWNE - 100%]`**. Jest jedna reakcja na przekroczony próg (bez trybu deweloperskiego; stary przełącznik `KEYFIRMWARE_TAMPER_LIVE_WIPE` / `TAMPER_ENABLE_CODE_FLASH_SELF_DESTRUCT` usunięto). Zdarzenie wyzwalające trafia do zaszyfrowanego logu (strona User Data `0x0FE00000`, flaga WIPE), tuż przed kasowaniem dochodzi zrzut liczników użycia (wpis `0xF1`), a następnie Secure Engine wykonuje `sl_se_erase_device()`: kasuje i weryfikuje całą pamięć Flash (kod Secure i Non-Secure, NVM3) oraz RAM, resetując też blokadę debug. Zostają tylko strona User Data (log) i dane OTP w SE. Jeśli SE odmówi, awaryjnie działa funkcja RAM `tamper_manager_self_destruct_ram()`. **To nie jest trwały bric** — po kasowaniu dongle flashuje się i provisionuje normalnie. Szczegóły: [antitamper.md](antitamper.md).
 
-#### 10. Bezpieczny Rozruch z Weryfikacją Podpisu (Secure Boot z RTSL) — `[NIEWYKORZYSTANE]`
+#### 10. Bezpieczny Rozruch z Weryfikacją Podpisu (Secure Boot z RTSL) — `[WYŁĄCZONY — DECYZJA ZESPOŁU]`
 * **Opis sprzętowy:** Weryfikacja kryptograficznego podpisu asymetrycznego każdego wgrywanego obrazu firmware'u przez bootloader w pamięci ROM koprocesora HSE, wraz ze sprzętową blokadą cofania wersji (Anti-Rollback).
-* **Stan w projekcie:** **`[NIEWYKORZYSTANE]`**. Klucze deweloperskie Seeed XIAO MG24 mają obecnie wyłączoną weryfikację podpisu bootloadera, co pozwala programistom na swobodne wgrywanie nowego kodu przez skrypty `flashbat\flash.bat` / `xiao_mg24_flash.py` bez konieczności każdorazowego certyfikowania binarnego obrazu kluczem produkcyjnym producenta.
+* **Stan w projekcie:** **`[WYŁĄCZONY — świadoma, trwała decyzja zespołu (2026-11-13)]`**. **Nie chcemy secure boota.** Jest redundantny z zawsze włączonym Secure Debug Lockiem (§11) wobec zagrożenia „wgraj złe firmware”: atakujący i tak nie otworzy SWD, żeby je wgrać. Pozwala to programistom swobodnie wgrywać kod przez `flashbat\flash.bat` / `xiao_mg24_flash.py` bez certyfikowania obrazu kluczem produkcyjnym.
+* **Trwałe zamrożenie:** decyzja `enable_secure_boot = false` jest wypalana **nieodwracalnie** w tym samym zapisie OTP co poziomy tamperów (`sl_se_init_otp()`, [`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c), uruchamiane w `provision_dongle --lock`). Po wypaleniu secure boot nigdy nie będzie mógł zostać włączony na danym układzie — to jest zamierzone. Szczegóły warstwy OTP/tamper: [antitamper.md → Plan warstwy OTP / Secure Engine](antitamper.md).
 
 #### 11. Kryptograficzna Blokada Debugera (Secure Debug with Lock/Unlock) — `[ZAIMPLEMENTOWANE - włączane w provisioningu]`
 * **Opis sprzętowy:** Trwałe zablokowanie magistrali SWD/JTAG z możliwością bezpiecznego, kryptograficznego odblokowania jej wyłącznie tokenem podpisanym kluczem Command Key producenta.
@@ -560,6 +561,7 @@ Poniższa tabela przedstawia obsługę poszczególnych komend protokołu TinyFra
 | `MSG_SAFE_SPACE_*` | `0x40`-`0x45` | Obliczenia Safe Space | **Nie** (Odrzucona) | **Tak** | Wyznaczanie granic parametrów uwalniania dla mediów FaSSGF/FaSSIF. |
 | `MSG_SSP_*` | `0x50`-`0x58` | Wykresy Safe Space | **Nie** (Odrzucona) | **Tak** | Generowanie chmury punktów i wielofazowych krzywych rozpuszczania. |
 | `MSG_DEBUG_LOCK_*` | `0x60`-`0x63` | Secure Debug: status, lock, challenge, unlock | **Tak** | **Tak** | Jawne z założenia; token odblokowania weryfikuje Secure Engine. |
+| `MSG_TAMPER_OTP_*` | `0x64`-`0x65` | SE OTP tamper: status, arm (nieodwracalne) | **Tak** | **Tak** | `ARM` wypala poziomy tamperów + secure boot OFF do OTP; tylko w `provision_dongle --lock`. |
 
 *(Uwaga: Wpis "Nie (Odrzucona)" oznacza, że dany kod rozkazu nie jest zarejestrowany w tablicy routera danej kompilacji i automatycznie zwraca błąd `ERR: Unknown command (ID)`).*
 

@@ -189,17 +189,41 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 | 9 User secure boot | Niepoprawny podpis naszego firmware'u | 0 = Ignore | **N/A do czasu włączenia secure boot** | Secure boot (RTSL) nie jest włączony (`compass_security_mechanisms.md` §10). |
 | Poziom reakcji 7 „Erase OTP” | Trwale brickuje układ (klucze OTP znikają, układ już nigdy się nie uruchomi) | nie dotyczy | Nieużywany | Tylko dla źródeł z zerowym odsetkiem fałszywych alarmów. Niezalecany dla nas. |
 
-### Plan warstwy OTP / Secure Engine (decyzje 2026-11-12)
+### Plan warstwy OTP / Secure Engine (decyzje 2026-11-12, zaimplementowane 2026-11-13)
 
-**Dwie warstwy.** (a) Software (dół master table) już działa, bez OTP — czyta zwykłe peryferia (GPIO, EMU, HFXO) i robi nasz wipe. (b) Sygnały SE (góra) wymagają jednorazowego wpisu poziomu w OTP i dziś są wyłączone (poziom 0).
+> **Decyzja zespołu (2026-11-13): Secure Boot = OFF, świadomie i na stałe.** Nie chcemy secure boota (RTSL) — jest redundantny z zawsze włączonym Secure Debug Lockiem wobec zagrożenia „wgraj złe firmware” (atakujący i tak nie otworzy SWD, żeby je wgrać). `sl_se_init_otp()` zamraża tę decyzję na zawsze w tym samym zapisie co poziomy tamperów, dlatego ustawiamy `enable_secure_boot = false` i mamy tego świadomość. Szczegóły: [compass_security_mechanisms.md §10](compass_security_mechanisms.md).
+
+**Stan: zaimplementowane.** Warstwę SE/OTP uzbraja firmware ([`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)) wołany przez `provision_dongle --lock` (bramka `MSG_TAMPER_OTP_ARM` 0x65, status `MSG_TAMPER_OTP_STATUS` 0x64). Sam wpal OTP na fizycznym urządzeniu pozostaje nieodwracalnym krokiem produkcyjnym (robi się raz, w `--lock`).
+
+**Dwie warstwy.** (a) Software (dół master table) już działa, bez OTP — czyta zwykłe peryferia (GPIO, EMU, HFXO) i robi nasz wipe. (b) Sygnały SE (góra) uzbraja jednorazowy wpis poziomu w OTP (w kodzie gotowe, wypalane w `--lock`).
 
 **Co jest w OTP i co wypala co.** OTP ma osobne „szufladki”, zapisywane różnymi operacjami:
 * `sl_se_init_otp_key(...)` — publiczny **Command Key** (Secure Debug). **Już wypalone** na donglach z `--lock`.
-* `sl_se_init_otp(...)` — blok **secure boot + poziomy tamperów** (`tamper_levels[]`), oba naraz, **raz i nieodwracalnie**. **Nietknięte** (tamper levels = 0). Uzbrojenie glitcha = ten wpis; przy okazji na zawsze zamraża decyzję o secure boot (zapis z secure boot OFF = już nigdy go nie włączysz na tym układzie).
+* `sl_se_init_otp(...)` — blok **secure boot + poziomy tamperów** (`tamper_levels[]`), oba naraz, **raz i nieodwracalnie**. Nasza konfiguracja: secure boot OFF + poziomy z tabeli niżej. Przy okazji na zawsze zamraża decyzję o secure boot (zapis z secure boot OFF = już nigdy go nie włączysz na tym układzie).
 
 **W OTP idzie tylko liczba (poziom), nie kod.** Poziomy: `0` ignore · `1` interrupt (SE podnosi `SETAMPERHOST`, resztę robi nasz handler, reflashowalny) · `4` reset (autonomiczny, sprzętowy) · `7` erase-OTP (brick — **nigdy**). „Co się wykona” przy poziomie 1 to zwykły firmware (`SETAMPERHOST_IRQHandler` → `tamper_manager_detected`), zmienialny reflashem; w OTP nie ma nazw funkcji ani adresów.
 
-**Szybki glitch (17/18) → poziom 4 (reset), nie wipe.** Atak to mikrosekundowa szpilka celująca w przeskoczenie instrukcji — CPU może nie zdążyć obsłużyć przerwania, więc poziom 1+wipe jest zawodny. Reset jest autonomiczny (SE działa niezależnie od zglitchowanego rdzenia), **niedestrukcyjny** i logowany na reboocie (`SE_TAMPER_RESET`, [`tamper_manager.c:150-153`](../../../KeyFirmware/src/core/tamper_manager.c#L150)) plus liczony w DIAG. **Nie brickujemy**, bo te detektory **fałszywie wzbudzają się** w normalnym świecie (ESD przy dotknięciu/wpięciu, brudne USB, inrush, EM w serwerowni) — brick zabiłby płacącego klienta nieodwracalnie. Zamiast tego: **po 50 resetach-tamper (lifetime, licznik w NVM3) firmware robi odwracalny wipe** na czystym starcie.
+**Szybki glitch (17/18) → poziom 2 (filtr) → licznik filtra (1) → poziom 4 (reset), nie wipe.** Dlaczego filtr, a nie reset wprost: Silicon Labs **wprost odradza** pędzenie poważnej reakcji prosto z surowych detektorów glitcha — „widzą sporadyczne wzbudzenia” (ESD przy dotknięciu/wpięciu, brudne USB, inrush, EM w serwerowni). Kierujemy więc 17/18 na **wspólny licznik filtra** (`SL_SE_TAMPER_SIGNAL_FILTER_COUNTER`, 0x1); dopiero seria glitchy w jednym oknie (~33 s, próg 4) zbija licznik, a on jest ustawiony na **reset**. To nadal reset na realny, podtrzymany atak (Twoja intencja), ale **sprzętowo odbouncowany** — pojedyncza szpilka ESD nie resetuje. Reset jest autonomiczny (SE działa niezależnie od zglitchowanego rdzenia), **niedestrukcyjny** i logowany na reboocie (`SE_TAMPER_RESET`, [`tamper_manager.c`](../../../KeyFirmware/src/core/tamper_manager.c)) plus liczony w DIAG. **Nie brickujemy.** Zamiast tego: **po 50 resetach-tamper (lifetime, licznik `reset_stats.se_tamper` w NVM3) firmware robi odwracalny wipe** na czystym starcie ([`sec_main.c`](../../../KeyFirmware/src/secure/sec_main.c), `TAMPER_SE_RESET_WIPE_THRESHOLD`).
+
+**`tamper_reset_threshold = 0` (SE nigdy sam się nie zatrzymuje).** To pole w OTP to „po ilu resetach-tamper układ wchodzi w tryb diagnostyczny/halt”. Domyślna wartość SDK to **5** — czyli po 5 resetach (np. z szumu) SE **sam zatrzymałby układ = brick**. Ustawiamy **0 = nigdy**, zgodnie z „never auto-brick”: eskalację (wipe po 50) prowadzi firmware, nie sprzęt.
+
+**Przez filtr nie tylko 17/18.** Debounce'ujemy też 10/11 Mailbox/DCI (brute force na debug-unlock / eksport kluczy) — zbijają ten sam wspólny licznik filtra, seria w oknie → reset, pojedyncze zdarzenie nigdy nie resetuje. **DPLL (23/24) celowo pomijamy:** nie używamy DPLL (zegar to HFXO + LFRCO), więc lock-fail nigdy nie odpali — uzbrojenie byłoby martwym wpisem, nie detektorem.
+
+**Logowanie per-zdarzenie (`SETAMPERHOST_IRQHandler`, [`sec_tamper_otp.c`](../../../KeyFirmware/src/secure/sec_tamper_otp.c)):** logujemy zdarzenia **dyskretne** — 10/11 Mailbox/DCI (filtr jest kumulatywny z interruptem, więc i tak podnoszą `SETAMPERHOST`) oraz 15 TRNG (poziom 1). **Nie** logujemy per-szpilkę detektorów 17/18 — pod szumem ESD/USB zużyłoby to log we flashu; ich efektem jest dopiero odbouncowany reset. Każdy logowany wpis to `SE_INTERRUPT` + `tamper_event_count`.
+
+**Uzbrajane poziomy OTP (`sec_tamper_otp.c`, `fill_tamper_levels`):**
+
+| Sygnał SE (nr) | Ustawiany poziom | Efekt |
+|---|---|---|
+| 17 EMPGD, 18 SUPGD | 2 = Filtr | Detektory glitcha EM/zasilania; zbijają wspólny licznik filtra, nie resetują wprost |
+| 10 Mailbox auth, 11 DCI auth | 2 = Filtr | Brute force na debug-unlock / eksport kluczy: seria → reset (rate-limit). Filtr jest kumulatywny z interruptem, więc każde zdarzenie nadal jest logowane |
+| 1 Filter counter | 4 = Reset | Seria dowolnych źródeł filtra w oknie (~33 s, próg 4) → reset (odbouncowany); liczone w NVM3, wipe po 50 |
+| 15 TRNG | 1 = Interrupt | Tylko log przez `SETAMPERHOST`, **bez** eskalacji do resetu (słaby/starzejący się TRNG nie może zapętlić resetów) |
+| 2,4,5,7,8,12,14,16,19 (wewn. SE), 21 BOD | (zostaje 4 = Reset z domyślnego) | Reguła `MAX(domyślny, nasz)` — zostawiamy 0, i tak resetują |
+| 22 temp, 23/24 DPLL, 25-31 PRS, 9 user-secure-boot | 0 = Ignore | Temperatura: software (−10/+70); DPLL: **nieużywany** (nie chodzi → lock-fail nigdy nie odpali, uzbrojenie = martwy wpis); PRS: pominięte |
+| dowolny | **nigdy 7 (erase-OTP)** | Brick — nie używamy |
+
+Filtr: okno `SL_SE_TAMPER_FILTER_PERIOD_33S`, próg `SL_SE_TAMPER_FILTER_THRESHOLD_4`. Flagi = 0 (glitch-detektor nie „always on”, tamper nie podtrzymywany w uśpieniu — oszczędza baterię w EM2).
 
 **Voltage/digital software (7, 8) → tylko log.** Wpięcie USB (inrush) i słaby start kwarcu fałszywie podnoszą te flagi (do tego `tamper_manager_init()` nie czyści starych flag), więc wipe po 2 = ryzyko skasowania klienta po dwóch wpięciach. Prawdziwy szybki glitch łapie teraz SE 17/18.
 
@@ -209,7 +233,11 @@ Legenda: **Aktywne** = działa dziś na donglach. **Tylko kod** = zaimplementowa
 
 **Numeracja sygnałów SE (MG24 = Series 2 Config 4, `sl_se_manager_defines.h`):** 17 EMPGD, 18 SUPGD, 21 BOD, 22 temp, 23/24 DPLL, 10/11 Mailbox/DCI, 15 TRNG. Numery **0, 3, 6, 13 to `RESERVED`** (puste, nie do użycia).
 
-> **Uwaga wdrożeniowa:** uzbrojenie sygnałów SE to **nieodwracalny** `sl_se_init_otp()`, który zamraża też secure boot. Robimy to **wyłącznie w kroku provisioningu produkcyjnego** (`provision_dongle --lock`), **nigdy** automatycznie przy starcie ani na płytkach deweloperskich. Kod warstwy SE jest bramkowany tą ścieżką. Stan: progi software wdrożone; warstwa SE/OTP do zaprogramowania i przetestowania (nietestowalna bez wypalenia OTP).
+> **Uwaga wdrożeniowa:** uzbrojenie sygnałów SE to **nieodwracalny** `sl_se_init_otp()`, który zamraża też secure boot (OFF). Robimy to **wyłącznie w kroku provisioningu produkcyjnego** (`provision_dongle --lock`), **nigdy** automatycznie przy starcie ani na płytkach deweloperskich. Kod warstwy SE (firmware + host) jest **wdrożony i bramkowany tą ścieżką**; `_arm_tamper_otp` prosi o osobne potwierdzenie `ARM`, a dongle już uzbrojony zgłasza `OTP_INIT:1` i jest pomijany.
+>
+> **Zweryfikowane na sprzęcie (2026-11-13):** pierwszy dongiel (`...3E32FE`) przeszedł pełny `--lock`; status czyta `OTP_INIT:1;SECURE_BOOT:0;EMPGD:2;SUPGD:2;FILTER_CNT:4;RESET_THRESH:0`, debug lock `LOCK_ACTIVE:1`. Walidacja bez `--lock` najpierw wyłapała błąd mapowania statusu (`sl_se_read_otp` dla nieuzbrojonego OTP **nie** zwraca `COMMAND_IS_INVALID` — teraz każdy wynik `!= OK` = „nieuzbrojony"). `sl_se_read_otp` zwraca poziomy **użytkownika**, nie efektywne.
+>
+> **Flash a sen EM2:** dongiel śpi w EM2 (zegar debug stoi) → pyOCD „No ACK". `provision_dongle._keep_awake_flash` trzyma go wybudzonym przez heartbeat po COM (osobny interfejs USB od CMSIS-DAP) wokół każdego flasha. `flashbat` nadal nie ma kroku wybudzenia — ręczny `flash.bat` śpiącego dongla wymaga tego samego (scratchpad `flash_awake.py`).
 
 ### Funkcje układu poza modułem tamper SE
 

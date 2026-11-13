@@ -1,7 +1,7 @@
 # Secure Debug Lock (blokada SWD z odblokowaniem typu challenge-response)
 
 > **Zakres:** KeyFirmware (Seeed XIAO MG24 / EFR32MG24, Secure Engine "Secure Vault High") + narzędzia KeySec `keyadmin`.
-> **Status:** Zaimplementowane. Stosowane **tylko na żądanie** (`provision_dongle.py <days> <users> --lock`, z CLI lub z menu administracyjnego).
+> **Status:** Zaimplementowane. Produkcyjny provisioning **domyślnie pieczętuje** (`provision_dongle.py <days> <users>` zamyka SWD i uzbraja OTP tamper); `--no-lock` to pomija (tryb deweloperski). Z menu administracyjnego operator jest pytany jawnie.
 > **Zweryfikowane na sprzęcie:** status, challenge, odrzucanie nieprawidłowych tokenów, odmowa dla urządzeń chronionych.
 > **Jeszcze niezweryfikowane na sprzęcie:** prawdziwa blokada, a po niej udane odblokowanie (zapisuje OTP; do wykonania na zapasowej płytce).
 
@@ -135,8 +135,8 @@ keyadmin/keys/
 |---|---|---|
 | `compile.bat` | Nie | Buduje oba firmware'y; osadza publiczny Command Key z `debug_command_pubkey.h`. |
 | `flash.bat`, `set_factory_mode.bat`, `set_production_mode.bat` | Nie | Tylko flashują przez pyOCD. Na zablokowanym donglu działają wyłącznie zaraz po `unlock`. |
-| `python keyadmin/scripts/provision_dongle.py <days> <users>` | **Nie** | kompilacja → firmware fabryczny → sekrety → firmware produkcyjny → weryfikacja. Krok blokady jest pomijany. |
-| `python keyadmin/scripts/provision_dongle.py <days> <users> --lock` | **Tak** | Po weryfikacji: sprawdzenie listy chronionych → sprawdzenie, czy już zablokowany → potwierdzenie przez wpisanie `LOCK` (`--yes` je pomija) → `0x61` → ponowny odczyt. |
+| `python keyadmin/scripts/provision_dongle.py <days> <users>` | **Tak (domyślnie)** | Po weryfikacji pieczętuje: sprawdzenie listy chronionych → sprawdzenie, czy już zablokowany → potwierdzenie `LOCK` (`--yes` je pomija) → `0x61` → ponowny odczyt → uzbrojenie OTP tamper (`ARM`, 0x65). Produkcyjny provision domyślnie zamyka SWD. |
+| `python keyadmin/scripts/provision_dongle.py <days> <users> --no-lock` | **Nie** | Pomija cały krok pieczętowania (blokada + OTP tamper). Zostawia SWD otwarty — tryb deweloperski/testowy. |
 | Konsola administracyjna, sekcja *FACTORY* → *Provision Dongle* | Tylko po odpowiedzi `y` | Ten sam pipeline; pyta o liczbę dni, użytkowników, blokadę oraz o potwierdzenie przez wpisanie `PROVISION`. |
 | `python keyadmin/scripts/secure_debug_lock.py lock` | Tak | Ten sam przebieg, samodzielnie. |
 | Konsola administracyjna (`python keyadmin/main.py`), sekcja *SECURE DEBUG LOCK (SWD)* | Tak | Status / Apply lock (prosi o wpisanie `LOCK`) / Unlock until next reset. |

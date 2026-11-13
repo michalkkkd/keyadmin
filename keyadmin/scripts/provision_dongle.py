@@ -1,7 +1,7 @@
 """
 KeySec factory provisioning pipeline (single entry point).
 
-    python provision_dongle.py [days] [users] [--port COMx] [--lock] [--yes] [--skip-compile] [--secrets-only] [--check]
+    python provision_dongle.py [days] [users] [--port COMx] [--no-lock] [--yes] [--skip-compile] [--secrets-only] [--check]
 
 Steps (flashing always goes through KeyFirmware/flashbat, which owns the firmware/TrustZone images):
     1. compile.bat                 build keyfirmware.hex + keyfirmware_prov.hex
@@ -9,7 +9,8 @@ Steps (flashing always goes through KeyFirmware/flashbat, which owns the firmwar
     3. secrets                     identity (PUF) -> Root CA certificate -> RTC -> license -> max users
     4. set_production_mode.bat     seal with the production firmware
     5. verify                      ECDHE session, license valid, alg1(15,27)=42, admin wipe rejected
-    6. --lock                      Secure Debug Lock (protected dongles are refused)
+    6. seal (DEFAULT)              Secure Debug Lock + SE OTP tamper arming (irreversible; protected dongles
+                                   are refused). Pass --no-lock to skip this and leave SWD open (development).
 
 A read-only preflight runs first and stops before the dongle is touched if anything is missing or inconsistent:
 scripts and images, Root CA pair, pyOCD with exactly one probe, exactly one free dongle port, SWD not locked,
@@ -68,6 +69,9 @@ from keyadmin.core.constants import (
     PROV_SETTLE_SEC,
     PROV_ATTEMPTS,
     PROV_RETRY_DELAY_SEC,
+    PROV_AWAKE_SETTLE_SEC,
+    PROV_MSG_AWAKE_HOLDING_FMT,
+    PROV_MSG_AWAKE_UNAVAILABLE_FMT,
     PROV_BANNER,
     PROV_MSG_PLAN_FMT,
     PROV_STEP_FMT,
@@ -119,6 +123,16 @@ from keyadmin.core.constants import (
     SDL_MSG_LOCK_OK,
     SDL_ERR_DEVICE_PROTECTED_FMT,
     PROV_ERR_LOCK_ABORTED,
+    TAMPER_OTP_CONFIRM_WORD,
+    TAMPER_OTP_WARNING,
+    TAMPER_OTP_PROMPT_CONFIRM_FMT,
+    PROV_STEP_TAMPER_OTP,
+    PROV_MSG_TAMPER_OTP_STATUS_FMT,
+    PROV_MSG_TAMPER_OTP_SKIPPED,
+    PROV_MSG_TAMPER_OTP_ALREADY,
+    PROV_MSG_TAMPER_OTP_OK,
+    PROV_ERR_TAMPER_OTP_FMT,
+    PROV_ERR_TAMPER_OTP_ABORTED,
     PROV_FLASHBAT_FILES,
     PROV_FIRMWARE_RELPATH,
     PROV_FIRMWARE_IMAGES,
@@ -180,12 +194,18 @@ def confirm_debug_lock() -> bool:
     return input(SDL_PROMPT_CONFIRM_FMT.format(word=SDL_CONFIRM_WORD)).strip() == SDL_CONFIRM_WORD
 
 
+def confirm_tamper_otp() -> bool:
+    print(TAMPER_OTP_WARNING)
+    return input(TAMPER_OTP_PROMPT_CONFIRM_FMT.format(word=TAMPER_OTP_CONFIRM_WORD)).strip() == TAMPER_OTP_CONFIRM_WORD
+
+
 class DongleProvisioner:
     """Runs the factory pipeline: compile -> factory firmware -> secrets -> production firmware -> verify -> lock."""
 
     def __init__(self, license_days: int = PROV_DEFAULT_LICENSE_DAYS, max_users: int = PROV_DEFAULT_MAX_USERS,
                  port: Optional[str] = None, compile_firmware: bool = True, flash_firmware: bool = True,
                  debug_lock: bool = False, confirm_lock: Callable[[], bool] = confirm_debug_lock,
+                 confirm_tamper: Callable[[], bool] = confirm_tamper_otp,
                  check_only: bool = False):
         self.license_days = license_days
         self.max_users = max_users
@@ -194,6 +214,7 @@ class DongleProvisioner:
         self.flash_firmware = flash_firmware
         self.debug_lock = debug_lock
         self.confirm_lock = confirm_lock
+        self.confirm_tamper = confirm_tamper
         self.check_only = check_only
         self.started_at = time.time()
 
@@ -226,10 +247,10 @@ class DongleProvisioner:
         if self.compile_firmware:
             steps.append((PROV_STEP_COMPILE, self._compile))
         if self.flash_firmware:
-            steps.append((PROV_STEP_FACTORY, lambda: self._run_bat(PROV_BAT_FACTORY_MODE)))
+            steps.append((PROV_STEP_FACTORY, lambda: self._keep_awake_flash(PROV_BAT_FACTORY_MODE)))
         steps.append((PROV_STEP_SECRETS, lambda: self._retry(self._provision_secrets)))
         if self.flash_firmware:
-            steps.append((PROV_STEP_PRODUCTION, lambda: self._run_bat(PROV_BAT_PRODUCTION_MODE)))
+            steps.append((PROV_STEP_PRODUCTION, lambda: self._keep_awake_flash(PROV_BAT_PRODUCTION_MODE)))
             steps.append((PROV_STEP_VERIFY, self._verify_and_lock))
         return steps
 
@@ -246,6 +267,30 @@ class DongleProvisioner:
             if bat_name != PROV_BAT_COMPILE:
                 error = f"{error} {PROV_HINT_FLASH_FAILED}"
             raise RuntimeError(error)
+
+    def _keep_awake_flash(self, bat_name: str) -> None:
+        """Flashes through flashbat while holding the dongle awake over COM (keycomm heartbeat, a separate USB
+        interface from pyOCD's CMSIS-DAP), so the SWD connect does not fail with 'No ACK' on a dongle sleeping
+        in EM2. Best-effort: if the keep-awake port can't be opened, the flash still runs (the dongle may be
+        awake already). The heartbeat holds the OLD firmware out of deep sleep only until pyOCD halts the core."""
+        port = self._wait_for_port()
+        transport = None
+        try:
+            try:
+                transport = SerialTransport(port=port)
+                transport.resume_heartbeat()
+                print(PROV_MSG_AWAKE_HOLDING_FMT.format(port=port))
+                time.sleep(PROV_AWAKE_SETTLE_SEC)  # pull the MCU out of EM2 before pyOCD connects
+            except Exception as e:
+                print(PROV_MSG_AWAKE_UNAVAILABLE_FMT.format(error=e))
+                transport = None
+            self._run_bat(bat_name)
+        finally:
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    pass
 
     def _compile(self) -> None:
         self._run_bat(PROV_BAT_COMPILE)
@@ -501,6 +546,9 @@ class DongleProvisioner:
                 print()
                 print(PROV_STEP_LOCK)
                 self._apply_debug_lock(admin, getattr(transport, "port", self.port))
+                print()
+                print(PROV_STEP_TAMPER_OTP)
+                self._arm_tamper_otp(admin)
             else:
                 print(PROV_MSG_LOCK_SKIPPED)
         finally:
@@ -543,14 +591,31 @@ class DongleProvisioner:
         print(service.describe(service.apply_lock()))
         print(SDL_MSG_LOCK_OK)
 
+    def _arm_tamper_otp(self, admin: AdminApi) -> None:
+        """Commits the SE tamper levels + secure-boot=OFF to OTP (irreversible, once per device). Runs only
+        inside the --lock production seal. Idempotent: a dongle already armed is reported and left untouched."""
+        status = admin.get_tamper_otp_status()
+        print(PROV_MSG_TAMPER_OTP_STATUS_FMT.format(status=status.strip()))
+        if "OTP_INIT:1" in status:
+            print(PROV_MSG_TAMPER_OTP_ALREADY)
+            return
+        if not self.confirm_tamper():
+            raise RuntimeError(PROV_ERR_TAMPER_OTP_ABORTED)
+        response = admin.arm_tamper_otp()
+        if not response.startswith(RESP_OK_PREFIX_STR):
+            raise RuntimeError(PROV_ERR_TAMPER_OTP_FMT.format(response=response))
+        print(PROV_MSG_TAMPER_OTP_OK)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="KeySec factory provisioning pipeline")
     parser.add_argument("days", nargs="?", type=int, default=PROV_DEFAULT_LICENSE_DAYS, help="license duration in days")
     parser.add_argument("users", nargs="?", type=int, default=PROV_DEFAULT_MAX_USERS, help="max concurrent users")
     parser.add_argument("--port", help="COM port (auto-detected when omitted)")
-    parser.add_argument("--lock", action="store_true", help="apply the Secure Debug Lock after verification")
-    parser.add_argument("--yes", action="store_true", help="lock without the interactive LOCK confirmation")
+    parser.add_argument("--no-lock", action="store_true",
+                        help="do NOT seal the dongle: skip the Secure Debug Lock + OTP tamper arming, leave SWD open "
+                             "(non-production / development). Production provisioning seals by default.")
+    parser.add_argument("--yes", action="store_true", help="seal without the interactive LOCK / ARM confirmations")
     parser.add_argument("--skip-compile", action="store_true", help="use the existing .hex files")
     parser.add_argument("--secrets-only", action="store_true",
                         help="only provision secrets on a dongle already running factory firmware (no compile/flash/verify)")
@@ -563,8 +628,9 @@ def main() -> int:
         port=args.port,
         compile_firmware=not (args.skip_compile or args.secrets_only),
         flash_firmware=not args.secrets_only,
-        debug_lock=args.lock and not args.secrets_only,
+        debug_lock=(not args.no_lock) and not args.secrets_only,
         confirm_lock=(lambda: True) if args.yes else confirm_debug_lock,
+        confirm_tamper=(lambda: True) if args.yes else confirm_tamper_otp,
         check_only=args.check,
     )
     return 0 if provisioner.run() else 1
